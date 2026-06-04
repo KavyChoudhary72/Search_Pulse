@@ -113,8 +113,6 @@ export const generateSeoPdf = (scan, res) => {
     txt(`(c) ${new Date().getFullYear()} Search Pulse`,
         PW - MR - 90, PH - 20, REG, 6.5, G.s500);
 
-    // Elegant page boundary/border
-    doc.rect(12, 12, PW - 24, PH - 24).strokeColor(G.s300).lineWidth(0.8).stroke();
   };
 
   // ── Section heading ───────────────────────────────────────────
