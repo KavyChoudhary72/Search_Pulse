@@ -466,17 +466,18 @@ export const generateSeoPdf = (scan, res) => {
   doc.circle(PW - MR - 44, by + BADGE_H / 2, 26).fillColor(G.s800).fill();
   doc.circle(ML + 30, by - 10, 20).fillColor(G.s800).fill();
 
+  // Redesigned seal — taller box, properly spaced text
+  const SEAL_W = 74;
+  const SEAL_H = 56;
+  const sealX  = PW - MR - SEAL_W - 4;
+  const sealY  = by + (BADGE_H - SEAL_H) / 2;
+
   // Closing card — show the Search Pulse brand URL
   const brandUrl = "https://search-pulse.onrender.com/";
   txt("Search Pulse", ML + 22, by + 14, BOLD, 14, G.white);
   txt("Smart SEO Intelligence for modern websites.", ML + 22, by + 32, REG, 8, G.s400);
   txt(brandUrl, ML + 22, by + 47, BOLD, 7.5, G.green, { width: CW - SEAL_W - 40, lineBreak: false, ellipsis: true });
 
-  // Redesigned seal — taller box, properly spaced text
-  const SEAL_W = 74;
-  const SEAL_H = 56;
-  const sealX  = PW - MR - SEAL_W - 4;
-  const sealY  = by + (BADGE_H - SEAL_H) / 2;
   rr(sealX, sealY, SEAL_W, SEAL_H, 8, G.green);
   // Top divider line inside seal
   doc.moveTo(sealX + 8, sealY + 18).lineTo(sealX + SEAL_W - 8, sealY + 18)
