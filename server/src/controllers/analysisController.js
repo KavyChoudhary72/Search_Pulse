@@ -1,24 +1,20 @@
 import { scrapeHtmlData } from "../services/scraperService.js";
 import { analyzeSeoMetrics } from "../services/seoAnalyzer.js";
 import Scan from "../models/Scan.js";
-import { getPageSpeedData } from "../services/pagespeedService.js";
 import { generateSeoSuggestions } from "../services/aiService.js";
 import { generateSeoPdf } from "../services/pdfService.js";
 import { captureMobileSnapshot } from "../services/screenshotService.js";
+import { getPageSpeedData } from "../services/pagespeedService.js";
 
 export const startAnalysis = async (req, res, next) => {
   try {
     const { url } = req.body;
 
-    // 1. Start scraping HTML and capturing Puppeteer screenshot in parallel
-    const scraperPromise = scrapeHtmlData(url);
-    const screenshotPromise = captureMobileSnapshot(url);
-
-    // 2. Wait for the HTML scraper to complete
-    const rawHtmlData = await scraperPromise;
+    // ── STEP 1: Scrape HTML (fast, ~1-2s) ────────────────────────────────
+    const rawHtmlData = await scrapeHtmlData(url);
     const evaluation = analyzeSeoMetrics(rawHtmlData);
 
-    // 3. Compute dynamic, rule-based genuine ratings for performance, accessibility, and best practices
+    // ── STEP 2: Compute scores (instant, in-memory) ───────────────────────
     const performance = Math.max(
       35,
       100 -
@@ -47,16 +43,16 @@ export const startAnalysis = async (req, res, next) => {
       firstContentfulPaint: rawHtmlData.sslSecure ? "1.2s" : "2.4s",
       speedIndex: rawHtmlData.mobileResponsive ? "1.5s" : "3.2s",
       largestContentfulPaint: rawHtmlData.sslSecure && rawHtmlData.mobileResponsive ? "1.8s" : "3.8s",
-      isEstimated: true
+      isEstimated: true,
     };
 
-    // 4. Start AI Suggestions call immediately (which runs in parallel with the remaining Puppeteer capture)
-    const aiPromise = generateSeoSuggestions({
+    // ── STEP 3: Generate instant fallback AI suggestions (synchronous) ────
+    const { generateFallbackSuggestions } = await import("../services/aiService.js");
+    const instantAi = generateFallbackSuggestions({
       url,
       seoScore: evaluation.seoScore,
       issues: evaluation.issues,
       summary: evaluation.summary,
-      performance: { performance, accessibility, bestPractices, metrics },
       meta: {
         metaTitle: rawHtmlData.metaTitle,
         metaDescription: rawHtmlData.metaDescription,
@@ -64,31 +60,17 @@ export const startAnalysis = async (req, res, next) => {
       },
     });
 
-    // 5. Wait for both the AI recommendations and the Puppeteer screenshot to finish
-    const [aiSuggestions, screenshot] = await Promise.all([
-      aiPromise,
-      screenshotPromise
-    ]);
-
-    // 6. Create and save the scan document in MongoDB with all metrics fully populated
+    // ── STEP 4: Save scan immediately with fallback AI, no screenshot yet ─
     const scan = await Scan.create({
       userId: req.user._id,
       url,
-
-      scores: {
-        seo: evaluation.seoScore,
-        performance,
-        accessibility,
-        bestPractices,
-      },
-
+      scores: { seo: evaluation.seoScore, performance, accessibility, bestPractices },
       metaData: {
         title: rawHtmlData.metaTitle,
         description: rawHtmlData.metaDescription,
         headings: rawHtmlData.headings,
         imagesWithoutAltCount: evaluation.summary.missingAlts,
       },
-
       issues: evaluation.issues,
       summary: {
         totalImages: evaluation.summary.totalImages,
@@ -99,18 +81,68 @@ export const startAnalysis = async (req, res, next) => {
         mobileResponsive: rawHtmlData.mobileResponsive,
         sslSecure: rawHtmlData.sslSecure,
         linksAnalysis: rawHtmlData.linksAnalysis,
-        keywordDensity: rawHtmlData.keywordDensity
+        keywordDensity: rawHtmlData.keywordDensity,
       },
-
       metrics,
-      aiSuggestions,
-      screenshot,
+      aiSuggestions: instantAi,
+      screenshot: null,
+      enriched: false, // flag: background job not done yet
     });
 
-    return res.status(200).json({
-      success: true,
-      data: scan,
+    // ── STEP 5: Respond immediately — user sees results in ~2-3s ─────────
+    res.status(200).json({ success: true, data: scan });
+
+    // ── STEP 6: Enrich in background (AI + PageSpeed + screenshot) — non-blocking ─────
+    setImmediate(async () => {
+      try {
+        const aiPayload = {
+          url,
+          seoScore: evaluation.seoScore,
+          issues: evaluation.issues,
+          summary: evaluation.summary,
+          performance: { performance, accessibility, bestPractices, metrics },
+          meta: {
+            metaTitle: rawHtmlData.metaTitle,
+            metaDescription: rawHtmlData.metaDescription,
+            headings: rawHtmlData.headings,
+          },
+        };
+
+        const [aiSuggestions, screenshot, pageSpeedData] = await Promise.all([
+          generateSeoSuggestions(aiPayload),
+          captureMobileSnapshot(url),
+          getPageSpeedData(url),
+        ]);
+
+        const updateData = {
+          aiSuggestions,
+          screenshot,
+          enriched: true,
+        };
+
+        if (pageSpeedData) {
+          updateData.scores = {
+            seo: pageSpeedData.seo !== null ? pageSpeedData.seo : evaluation.seoScore,
+            performance: pageSpeedData.performance !== null ? pageSpeedData.performance : performance,
+            accessibility: pageSpeedData.accessibility !== null ? pageSpeedData.accessibility : accessibility,
+            bestPractices: pageSpeedData.bestPractices !== null ? pageSpeedData.bestPractices : bestPractices,
+          };
+          updateData.metrics = {
+            firstContentfulPaint: pageSpeedData.metrics?.firstContentfulPaint || metrics.firstContentfulPaint,
+            speedIndex: pageSpeedData.metrics?.speedIndex || metrics.speedIndex,
+            largestContentfulPaint: pageSpeedData.metrics?.largestContentfulPaint || metrics.largestContentfulPaint,
+            isEstimated: false,
+          };
+        }
+
+        await Scan.findByIdAndUpdate(scan._id, updateData);
+
+        console.log(`✅ Background enrichment complete for: ${url}`);
+      } catch (bgErr) {
+        console.error("⚠️ Background enrichment failed:", bgErr.message);
+      }
     });
+
   } catch (error) {
     next(error);
   }
@@ -125,10 +157,7 @@ export const lazyLoadAnalysis = async (req, res, next) => {
         message: "Scan report not found or you do not have permission to audit it.",
       });
     }
-    return res.status(200).json({
-      success: true,
-      data: scan,
-    });
+    return res.status(200).json({ success: true, data: scan });
   } catch (error) {
     next(error);
   }
@@ -137,10 +166,7 @@ export const lazyLoadAnalysis = async (req, res, next) => {
 export const getHistory = async (req, res, next) => {
   try {
     const scans = await Scan.find({ userId: req.user._id }).sort({ createdAt: -1 });
-    return res.status(200).json({
-      success: true,
-      data: scans,
-    });
+    return res.status(200).json({ success: true, data: scans });
   } catch (error) {
     next(error);
   }
@@ -150,15 +176,9 @@ export const getScanById = async (req, res, next) => {
   try {
     const scan = await Scan.findById(req.params.id);
     if (!scan) {
-      return res.status(404).json({
-        success: false,
-        message: "Audit report not found."
-      });
+      return res.status(404).json({ success: false, message: "Audit report not found." });
     }
-    return res.status(200).json({
-      success: true,
-      data: scan
-    });
+    return res.status(200).json({ success: true, data: scan });
   } catch (error) {
     next(error);
   }
@@ -168,21 +188,14 @@ export const exportScanPdf = async (req, res, next) => {
   try {
     const scan = await Scan.findById(req.params.id);
     if (!scan) {
-      return res.status(404).json({
-        success: false,
-        message: "Audit report not found."
-      });
+      return res.status(404).json({ success: false, message: "Audit report not found." });
     }
-
     const filename = `SearchPulse-Report-${scan._id}.pdf`;
-
-    // Force download on all devices including mobile browsers
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
-
     generateSeoPdf(scan, res);
   } catch (error) {
     next(error);

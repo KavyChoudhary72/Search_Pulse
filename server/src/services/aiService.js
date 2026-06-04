@@ -7,7 +7,7 @@ const aiCache = new NodeCache({ stdTTL: 86400, checkperiod: 600 });
 /**
  * Generates high-fidelity SEO recommendations dynamically in case Gemini API key is missing or invalid
  */
-const generateFallbackSuggestions = (payload) => {
+export const generateFallbackSuggestions = (payload) => {
   const { url, seoScore, issues = [], summary = {}, meta = {} } = payload;
   const domain = url ? url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : "your website";
 

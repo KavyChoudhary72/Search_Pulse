@@ -4,7 +4,7 @@ import * as cheerio from "cheerio";
 export const scrapeHtmlData = async (targetUrl) => {
   try {
     const { data } = await axios.get(targetUrl, {
-      timeout: 10000,
+      timeout: 4000,
       maxContentLength: 5 * 1024 * 1024, // 5MB max
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; SearchPulse-Bot/1.0; +https://search-pulse.onrender.com)",

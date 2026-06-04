@@ -56,6 +56,7 @@ export default function Dashboard() {
   const currentScan = useSeoStore((state) => state.currentScan);
   const isLoading = useSeoStore((state) => state.isLoading);
   const setActivePage = useSeoStore((state) => state.setActivePage);
+  const lazyLoadScan = useSeoStore((state) => state.lazyLoadScan);
   const [copied, setCopied] = useState(false);
   const [showIssues, setShowIssues] = useState(false);
 
@@ -120,7 +121,18 @@ export default function Dashboard() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const isLazyLoading = currentScan && (currentScan.scores?.performance === null || currentScan.scores?.performance === undefined);
+  // Poll for background enrichment results if the scan is not yet enriched
+  useEffect(() => {
+    if (!currentScan || currentScan.enriched) return;
+
+    const interval = setInterval(() => {
+      lazyLoadScan(currentScan._id);
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [currentScan?._id, currentScan?.enriched, lazyLoadScan]);
+
+  const isLazyLoading = currentScan && !currentScan.enriched;
 
   if (isLoading) {
     return (
@@ -1335,6 +1347,20 @@ export default function Dashboard() {
                       Mobile Layout View
                     </span>
                   </div>
+                </div>
+              ) : isLazyLoading ? (
+                <div className="w-full h-72 border border-dashed border-emerald-250 rounded-2xl flex flex-col items-center justify-center text-emerald-600 gap-2.5 p-6 text-center bg-emerald-50/20 animate-pulse">
+                  <div className="relative w-10 h-10 flex items-center justify-center">
+                    <Smartphone size={32} className="text-emerald-500 animate-bounce" />
+                    <svg className="animate-spin absolute -top-1 -right-1 w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                  </div>
+                  <span className="text-xs font-black text-emerald-800">Generating Snapshot...</span>
+                  <p className="text-[10px] text-emerald-600 leading-normal max-w-[180px] mx-auto font-semibold">
+                    Launching reusable headless browser to capture layout above-the-fold.
+                  </p>
                 </div>
               ) : (
                 <div className="w-full h-72 border border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 gap-2 p-6 text-center bg-slate-50/50">

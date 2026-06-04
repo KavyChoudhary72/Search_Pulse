@@ -44,6 +44,10 @@ const scanSchema = new mongoose.Schema(
     metrics: mongoose.Schema.Types.Mixed,
     aiSuggestions: mongoose.Schema.Types.Mixed,
     screenshot: String,
+    enriched: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

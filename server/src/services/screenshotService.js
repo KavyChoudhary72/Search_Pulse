@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
 
@@ -20,14 +21,37 @@ const getBrowser = async () => {
     }
   }
 
-  // Configure @sparticuz/chromium for the cloud environment
-  chromium.setHeadlessMode = true;
-  chromium.setGraphicsMode = false;
+  let executablePath = "";
+  let launchArgs = [];
+  let isHeadless = true;
 
-  const executablePath = await chromium.executablePath();
-
-  cachedBrowser = await puppeteer.launch({
-    args: [
+  if (process.platform === "win32") {
+    const paths = [
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      process.env.LOCALAPPDATA + "\\Google\\Chrome\\Application\\chrome.exe",
+    ];
+    for (const p of paths) {
+      if (fs.existsSync(p)) {
+        executablePath = p;
+        break;
+      }
+    }
+    launchArgs = [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-zygote",
+    ];
+    isHeadless = true;
+  } else {
+    // Configure @sparticuz/chromium for the cloud environment
+    chromium.setHeadlessMode = true;
+    chromium.setGraphicsMode = false;
+    executablePath = await chromium.executablePath();
+    launchArgs = [
       ...chromium.args,
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -37,10 +61,15 @@ const getBrowser = async () => {
       "--single-process",
       "--disable-web-security",
       "--ignore-certificate-errors",
-    ],
-    defaultViewport: chromium.defaultViewport,
+    ];
+    isHeadless = chromium.headless;
+  }
+
+  cachedBrowser = await puppeteer.launch({
+    args: launchArgs,
+    defaultViewport: process.platform === "win32" ? { width: 390, height: 844 } : chromium.defaultViewport,
     executablePath,
-    headless: chromium.headless,
+    headless: isHeadless,
     ignoreHTTPSErrors: true,
   });
 
