@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import axios from "axios";
 
-const BACKEND_URL = import.meta.env.VITE_API_URL || "https://search-pulse-backend.onrender.com";
+const BACKEND_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:5000" : "https://search-pulse-backend.onrender.com");
 const API_BASE_URL = `${BACKEND_URL}/api/analysis`;
 
 export const useSeoStore = create((set, get) => ({
