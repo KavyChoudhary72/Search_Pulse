@@ -1328,7 +1328,7 @@ export default function Dashboard() {
                   <img 
                     src={currentScan.screenshot} 
                     alt="Mobile website snapshot" 
-                    className="w-full h-full object-cover relative z-10 group-hover/phone:scale-105 transition-transform duration-500"
+                    className="w-full h-full object-cover object-top relative z-10 group-hover/phone:scale-105 transition-transform duration-500"
                   />
                   <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover/phone:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
                     <span className="text-[10px] font-black bg-white/95 text-slate-900 px-3 py-1.5 rounded-xl border border-slate-100 shadow-md">
