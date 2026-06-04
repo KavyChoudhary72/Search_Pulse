@@ -459,7 +459,7 @@ export default function Dashboard() {
             </button>
 
             <a
-              href={`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/analysis/export/${currentScan._id}`}
+              href={`${import.meta.env.VITE_API_URL || "https://search-pulse-backend.onrender.com"}/api/analysis/export/${currentScan._id}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black transition-all text-xs active:scale-95 shadow-md shadow-emerald-600/10"
