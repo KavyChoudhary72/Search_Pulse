@@ -1,350 +1,557 @@
 import PDFDocument from "pdfkit";
 
 /**
- * Compiles a beautiful, high-fidelity A4 audit report PDF using vector charts, margins, page frames, and custom Segoe UI typography.
+ * Generates a premium, fully-designed A4 SEO Audit Report PDF
+ * matching the Search Pulse website theme (Emerald + Slate palette).
+ * Fixes: empty trailing pages, mobile download headers, aesthetic layout.
  */
 export const generateSeoPdf = (scan, stream) => {
-  // Initialize standard A4 PDF document
-  const doc = new PDFDocument({ margin: 50, size: "A4" });
-  doc.pipe(stream);
+  const PAGE_W = 595.28;
+  const PAGE_H = 841.89;
+  const MARGIN = 48;
+  const CONTENT_W = PAGE_W - MARGIN * 2;
 
-  // Mint Green Design System Palette
-  const brandGreen = "#10b981"; // Mint Green
-  const brandDarkGreen = "#0f766e"; // Teal Dark
-  const textDark = "#1e293b"; // Slate 800 (clean charcoal)
-  const textMuted = "#64748b"; // Slate 500
-  const bgLight = "#f8fafc"; // Slate 50
-  const borderLight = "#e2e8f0"; // Slate 200
-
-  // ----------------------------------------------------
-  // TYPOGRAPHY REGISTER (Segoe UI to match the website)
-  // ----------------------------------------------------
-  let regularFont = "Helvetica";
-  let boldFont = "Helvetica-Bold";
-  let italicFont = "Helvetica-Oblique";
-
-  try {
-    // Dynamic system lookup for Windows native Segoe UI font files
-    doc.registerFont("SegoeUI", "C:\\Windows\\Fonts\\segoeui.ttf");
-    doc.registerFont("SegoeUI-Bold", "C:\\Windows\\Fonts\\segoeuib.ttf");
-    doc.registerFont("SegoeUI-Italic", "C:\\Windows\\Fonts\\segoeuii.ttf");
-
-    regularFont = "SegoeUI";
-    boldFont = "SegoeUI-Bold";
-    italicFont = "SegoeUI-Italic";
-  } catch (err) {
-    console.warn("⚠️ System font Segoe UI unavailable, falling back to Helvetica:", err.message);
-  }
-
-  // ----------------------------------------------------
-  // 1. PAGE BOUNDARY BORDER FRAME (Mint Green)
-  // ----------------------------------------------------
-  const drawPageBorder = () => {
-    // Thin, premium boundary frame around A4 margins
-    doc
-      .rect(25, 25, 545, 792)
-      .strokeColor(brandGreen)
-      .lineWidth(1.25)
-      .stroke();
+  // ── Brand Palette ──────────────────────────────────────────────
+  const C = {
+    green:       "#10b981",
+    greenDark:   "#059669",
+    greenDeep:   "#064e3b",
+    greenTint:   "#ecfdf5",
+    greenMid:    "#d1fae5",
+    blue:        "#0ea5e9",
+    purple:      "#8b5cf6",
+    indigo:      "#6366f1",
+    slate900:    "#0f172a",
+    slate800:    "#1e293b",
+    slate700:    "#334155",
+    slate500:    "#64748b",
+    slate400:    "#94a3b8",
+    slate200:    "#e2e8f0",
+    slate100:    "#f1f5f9",
+    slate50:     "#f8fafc",
+    white:       "#ffffff",
   };
 
-  // Draw boundary frame on page 1 manually
-  drawPageBorder();
-
-  // Register automatic border frame listener for subsequent page breaks
-  doc.on("pageAdded", () => {
-    drawPageBorder();
-    
-    // Add running header on page 2+
-    doc
-      .fillColor(brandGreen)
-      .fontSize(9)
-      .font(boldFont)
-      .text("Search Pulse", 50, 42, { characterSpacing: 0.5 })
-      .fillColor(textMuted)
-      .font(regularFont)
-      .text(" |   SEO Audit Report", 125, 42)
-      .moveTo(50, 54)
-      .lineTo(545, 54)
-      .strokeColor(borderLight)
-      .lineWidth(0.75)
-      .stroke();
+  const doc = new PDFDocument({
+    size: "A4",
+    margin: 0,
+    autoFirstPage: true,
+    info: {
+      Title: `SearchPulse SEO Report — ${scan.url}`,
+      Author: "Search Pulse",
+      Subject: "SEO Audit Report",
+      Keywords: "SEO, performance, accessibility, best-practices",
+    },
   });
 
-  // ----------------------------------------------------
-  // Helper: Page Break Guard & Dynamic Header
-  // ----------------------------------------------------
-  const checkPageBreak = (heightNeeded) => {
-    if (doc.y + heightNeeded > 740) {
+  doc.pipe(stream);
+
+  // ── Font Setup ─────────────────────────────────────────────────
+  let F = { reg: "Helvetica", bold: "Helvetica-Bold", italic: "Helvetica-Oblique" };
+
+  // ── Page State ─────────────────────────────────────────────────
+  let pageNum = 0;
+
+  // ── Helpers ────────────────────────────────────────────────────
+
+  /** Clamp doc.y to avoid going below usable area */
+  const safeY = (fallback = MARGIN + 20) => {
+    const y = doc.y;
+    return (y === undefined || y === null || isNaN(y)) ? fallback : y;
+  };
+
+  /** Absolute positioned text — won't move cursor */
+  const absText = (text, x, y, opts = {}) => {
+    doc.text(text, x, y, { lineBreak: false, ...opts });
+  };
+
+  /** Draw a filled rounded rect */
+  const fillRRect = (x, y, w, h, r, color) => {
+    doc.roundedRect(x, y, w, h, r).fillColor(color).fill();
+  };
+
+  /** Draw a stroked rounded rect */
+  const strokeRRect = (x, y, w, h, r, color, lw = 0.75) => {
+    doc.roundedRect(x, y, w, h, r).strokeColor(color).lineWidth(lw).stroke();
+  };
+
+  /** Draw a horizontal rule */
+  const hRule = (y, color = C.slate200, lw = 0.75) => {
+    doc.moveTo(MARGIN, y).lineTo(PAGE_W - MARGIN, y)
+       .strokeColor(color).lineWidth(lw).stroke();
+  };
+
+  /** Page break guard — adds new page if needed */
+  const guard = (need, extraY = 0) => {
+    const used = safeY() + need;
+    if (used > PAGE_H - 65) {
       doc.addPage();
-      doc.y = 70; // Set vertical pointer below running header line
+      doc.y = MARGIN + 32 + extraY;
     }
   };
 
-  // ----------------------------------------------------
-  // 2. BRANDING HEADER BANNER
-  // ----------------------------------------------------
-  // Solid branding block at top of page 1
-  doc
-    .rect(50, 50, 495, 70)
-    .fill(bgLight);
+  /** Vertical spacer */
+  const gap = (px) => { doc.y = safeY() + px; };
 
-  doc
-    .rect(50, 50, 4, 70)
-    .fill(brandGreen);
+  // ── Section heading helper ─────────────────────────────────────
+  const sectionHead = (label, icon = "▸") => {
+    guard(40);
+    const y = safeY();
 
-  doc
-    .fillColor(textDark)
-    .fontSize(22)
-    .font(boldFont)
-    .text("Search ", 75, 72, { continued: true, characterSpacing: 0.4 })
-    .fillColor(brandGreen)
-    .text("Pulse", { characterSpacing: 0.4 });
+    // Decorative left accent pill
+    fillRRect(MARGIN, y, 3, 16, 2, C.green);
 
-  // Divider line below header
-  doc
-    .moveTo(50, 135)
-    .lineTo(545, 135)
-    .strokeColor(borderLight)
-    .lineWidth(0.75)
-    .stroke();
+    doc
+      .font(F.bold).fontSize(9).fillColor(C.slate500)
+      .text(label, MARGIN + 10, y + 1, { characterSpacing: 1.2, lineBreak: false });
 
-  // ----------------------------------------------------
-  // 3. AUDIT TARGET META DETAILS
-  // ----------------------------------------------------
-  doc.y = 150;
+    gap(22);
+    hRule(safeY(), C.slate200, 0.5);
+    gap(10);
+  };
 
-  doc
-    .fillColor(textMuted)
-    .fontSize(8.5)
-    .font(boldFont)
-    .text("AUDITED DOMAIN URL", 50, doc.y, { characterSpacing: 0.8 });
+  // ── Per-page decoration ────────────────────────────────────────
+  const decoratePage = (isFirst = false) => {
+    pageNum++;
 
-  doc
-    .fillColor(brandDarkGreen)
-    .fontSize(14)
-    .font(boldFont)
-    .text(scan.url, 50, doc.y + 5, { characterSpacing: 0.1 });
+    // Top thin bar
+    doc.rect(0, 0, PAGE_W, 4).fillColor(C.green).fill();
 
-  doc
-    .fillColor(textMuted)
-    .fontSize(8.5)
-    .font(regularFont)
-    .text(`Crawl Timestamp: ${new Date(scan.createdAt).toUTCString()}`, 50, doc.y + 6, { characterSpacing: 0.2 });
+    if (!isFirst) {
+      // Running header
+      fillRRect(0, 4, PAGE_W, 36, 0, C.slate900);
+      doc.font(F.bold).fontSize(8).fillColor(C.green)
+         .text("SEARCH PULSE", MARGIN, 16, { characterSpacing: 2, lineBreak: false });
+      doc.font(F.reg).fontSize(7.5).fillColor(C.slate400)
+         .text("  ·  SEO Audit Report", MARGIN + 78, 16, { lineBreak: false });
+      doc.font(F.reg).fontSize(7.5).fillColor(C.slate500)
+         .text(`Page ${pageNum}`, PAGE_W - MARGIN - 40, 16, { lineBreak: false });
+    }
 
-  // ----------------------------------------------------
-  // 4. VISUAL SCOREBOARD (4 Cards with Vector Progress Bars)
-  // ----------------------------------------------------
-  doc.y = doc.y + 25;
-  checkPageBreak(170);
+    // Bottom thin bar
+    doc.rect(0, PAGE_H - 26, PAGE_W, 26).fillColor(C.slate900).fill();
+    doc.font(F.italic).fontSize(6.5).fillColor(C.slate500)
+       .text(
+         "Generated by Search Pulse · searchpulse.vercel.app · Confidential",
+         MARGIN, PAGE_H - 16,
+         { lineBreak: false }
+       );
+    doc.font(F.reg).fontSize(6.5).fillColor(C.slate500)
+       .text(
+         `© ${new Date().getFullYear()} Search Pulse`,
+         PAGE_W - MARGIN - 90, PAGE_H - 16,
+         { lineBreak: false }
+       );
+  };
 
-  doc
-    .fillColor(textDark)
-    .fontSize(11)
-    .font(boldFont)
-    .text("SEO SCAN PERFORMANCE INDEX", 50, doc.y, { characterSpacing: 0.5 });
+  doc.on("pageAdded", () => decoratePage(false));
 
-  const cardY = doc.y + 12;
-  const seo = Math.round(scan.scores?.seo || 0);
-  const perf = Math.round(scan.scores?.performance || 88);
-  const access = Math.round(scan.scores?.accessibility || 90);
-  const bestPrac = Math.round(scan.scores?.bestPractices || 95);
+  // ═══════════════════════════════════════════════════════════════
+  // PAGE 1 — COVER
+  // ═══════════════════════════════════════════════════════════════
+  decoratePage(true);
 
-  const scoresList = [
-    { label: "SEO Audit Score", score: seo, color: "#10b981" },
-    { label: "Performance / Speed", score: perf, color: "#0ea5e9" },
-    { label: "Accessibility Score", score: access, color: "#a855f7" },
-    { label: "Best Practices", score: bestPrac, color: "#6366f1" }
+  // ── Hero gradient block ────────────────────────────────────────
+  const heroH = 220;
+  doc.rect(0, 4, PAGE_W, heroH).fillColor(C.slate900).fill();
+
+  // Decorative emerald circle blobs (background feel)
+  doc.circle(PAGE_W - 80, 60, 90).fillOpacity(0.07).fillColor(C.green).fill();
+  doc.circle(80, 160, 60).fillOpacity(0.05).fillColor(C.green).fill();
+  doc.fillOpacity(1);
+
+  // Brand badge top-left
+  fillRRect(MARGIN, 24, 110, 22, 11, C.green);
+  doc.font(F.bold).fontSize(8.5).fillColor(C.white)
+     .text("⚡ SEARCH PULSE", MARGIN + 8, 30, { characterSpacing: 0.8, lineBreak: false });
+
+  // Main title
+  doc.font(F.bold).fontSize(30).fillColor(C.white)
+     .text("SEO Audit", MARGIN, 76, { lineBreak: false });
+  doc.font(F.bold).fontSize(30).fillColor(C.green)
+     .text(" Report", MARGIN + 115, 76, { lineBreak: false });
+
+  doc.font(F.reg).fontSize(10).fillColor(C.slate400)
+     .text("Comprehensive performance analysis powered by AI", MARGIN, 116, { lineBreak: false });
+
+  // URL pill
+  const urlLabel = (scan.url || "—").replace(/^https?:\/\//, "").substring(0, 55);
+  fillRRect(MARGIN, 144, Math.min(CONTENT_W, urlLabel.length * 6.8 + 32), 26, 13, "#1e293b");
+  doc.font(F.bold).fontSize(9).fillColor(C.green)
+     .text("🔗 ", MARGIN + 10, 151, { lineBreak: false, continued: true })
+     .fillColor(C.slate200)
+     .font(F.reg)
+     .text(urlLabel, { lineBreak: false });
+
+  // Crawl date chip
+  const crawlDate = new Date(scan.createdAt).toLocaleDateString("en-US", {
+    weekday: "short", year: "numeric", month: "short", day: "numeric"
+  });
+  doc.font(F.reg).fontSize(8).fillColor(C.slate500)
+     .text(`Crawled: ${crawlDate}`, MARGIN, 180, { lineBreak: false });
+
+  // ── Score ribbon (4 pills on hero) ────────────────────────────
+  const scores = [
+    { label: "SEO",           value: Math.round(scan.scores?.seo || 0),            color: C.green  },
+    { label: "Performance",   value: Math.round(scan.scores?.performance || 0),     color: C.blue   },
+    { label: "Accessibility", value: Math.round(scan.scores?.accessibility || 0),   color: C.purple },
+    { label: "Best Practices",value: Math.round(scan.scores?.bestPractices || 0),   color: C.indigo },
   ];
 
-  scoresList.forEach((item, idx) => {
-    // Position in 2x2 grid
-    const col = idx % 2;
-    const row = Math.floor(idx / 2);
-    const x = col === 0 ? 50 : 310;
-    const y = cardY + (row * 68);
+  const pillW = 116, pillH = 72, pillGap = 7;
+  const totalPillsW = pillW * 4 + pillGap * 3;
+  const pillStartX = (PAGE_W - totalPillsW) / 2;
+  const pillY = heroH + 4 + 14;
 
-    // Draw background card rounded rectangle (safe dual-path)
-    doc.roundedRect(x, y, 235, 58, 6).fill(bgLight);
-    doc.roundedRect(x, y, 235, 58, 6).strokeColor(borderLight).lineWidth(0.75).stroke();
+  scores.forEach((s, i) => {
+    const px = pillStartX + i * (pillW + pillGap);
 
-    // Print label
-    doc
-      .fillColor(textMuted)
-      .fontSize(8)
-      .font(boldFont)
-      .text(item.label.toUpperCase(), x + 12, y + 14, { characterSpacing: 0.5 });
+    // Card
+    fillRRect(px, pillY, pillW, pillH, 10, C.white);
+    strokeRRect(px, pillY, pillW, pillH, 10, C.slate200, 0.5);
 
-    // Print percentage score
-    doc
-      .fillColor(textDark)
-      .fontSize(16)
-      .font(boldFont)
-      .text(`${item.score}%`, x + 185, y + 10);
+    // Top accent
+    fillRRect(px, pillY, pillW, 3, 10, s.color);
+    fillRRect(px, pillY + 3, pillW, 3, 0, s.color); // square bottom of rounded top
 
-    // Draw custom vector progress track
-    doc
-      .roundedRect(x + 12, y + 36, 210, 6, 3)
-      .fill("#e2e8f0");
+    // Score value
+    const scoreX = px + pillW / 2;
+    doc.font(F.bold).fontSize(22).fillColor(C.slate900)
+       .text(`${s.value}%`, px + 6, pillY + 16, { width: pillW - 12, align: "center", lineBreak: false });
 
-    // Draw custom filled progress track
-    const filledWidth = Math.max(1, 210 * (item.score / 100));
-    doc
-      .roundedRect(x + 12, y + 36, filledWidth, 6, 3)
-      .fill(item.color);
+    // Label
+    doc.font(F.bold).fontSize(6.5).fillColor(C.slate500)
+       .text(s.label.toUpperCase(), px + 4, pillY + pillH - 18, {
+         width: pillW - 8, align: "center", characterSpacing: 0.5, lineBreak: false
+       });
+
+    // Mini progress bar
+    const barY = pillY + pillH - 8;
+    fillRRect(px + 10, barY, pillW - 20, 3, 1.5, C.slate100);
+    fillRRect(px + 10, barY, Math.max(2, (pillW - 20) * s.value / 100), 3, 1.5, s.color);
   });
 
-  // ----------------------------------------------------
-  // 5. DETAILED SEO CHECKLIST (With Circle Checkmarks)
-  // ----------------------------------------------------
-  doc.y = cardY + 150;
-  checkPageBreak(180);
+  doc.y = pillY + pillH + 22;
 
-  doc
-    .fillColor(textDark)
-    .fontSize(11)
-    .font(boldFont)
-    .text("FOUNDATIONAL SEO METRICS CHECKLIST", 50, doc.y, { characterSpacing: 0.5 });
+  // ═══════════════════════════════════════════════════════════════
+  // SECTION — METADATA OVERVIEW
+  // ═══════════════════════════════════════════════════════════════
+  sectionHead("PAGE METADATA OVERVIEW");
 
-  doc.y = doc.y + 12;
+  const metaTitle = scan.metaData?.title || "—";
+  const metaDesc  = scan.metaData?.description || "—";
 
-  const h1Count = scan.metaData?.headings?.h1?.length || 0;
-  const h2Count = scan.metaData?.headings?.h2?.length || 0;
-  const h3Count = scan.metaData?.headings?.h3?.length || 0;
-  const missingAlts = scan.metaData?.imagesWithoutAltCount || 0;
+  // Title row
+  guard(52);
+  fillRRect(MARGIN, safeY(), CONTENT_W, 44, 8, C.slate50);
+  strokeRRect(MARGIN, safeY(), CONTENT_W, 44, 8, C.slate200, 0.5);
 
-  const checklist = [
-    { name: "Website Title Tag", value: scan.metaData?.title || "Missing metadata" },
-    { name: "Description Tag", value: scan.metaData?.description || "Missing metadata" },
-    { name: "Headings Hierarchies", value: `H1 headings: ${h1Count}  |  H2 headings: ${h2Count}  |  H3 headings: ${h3Count}` },
-    { name: "Image Alternative Texts", value: missingAlts === 0 ? "All scanned images are labeled." : `${missingAlts} image(s) missing descriptive alt attributes.` },
-    { name: "SSL Secure Protocols", value: scan.summary?.sslSecure ? "HTTPS protocol active and secure." : "Site does not use SSL certificate (HTTPS protocol missing)." }
+  const rowY = safeY();
+  doc.font(F.bold).fontSize(7.5).fillColor(C.slate400)
+     .text("PAGE TITLE", MARGIN + 14, rowY + 8, { characterSpacing: 0.8, lineBreak: false });
+  doc.font(F.reg).fontSize(9).fillColor(C.slate800)
+     .text(metaTitle.substring(0, 80), MARGIN + 14, rowY + 20, { lineBreak: false });
+
+  // Title length indicator
+  const titleLen = metaTitle.length;
+  const titleOk = titleLen >= 30 && titleLen <= 60;
+  const titleChip = titleOk ? "✓ Optimal length" : titleLen < 30 ? "⚠ Too short" : "⚠ Too long";
+  const chipColor = titleOk ? C.green : "#f59e0b";
+  fillRRect(PAGE_W - MARGIN - 90, rowY + 12, 84, 18, 9, titleOk ? C.greenTint : "#fffbeb");
+  doc.font(F.bold).fontSize(7).fillColor(chipColor)
+     .text(titleChip, PAGE_W - MARGIN - 88, rowY + 18, { lineBreak: false });
+
+  gap(50);
+
+  // Description row
+  guard(60);
+  const descH = Math.max(52, doc.heightOfString(metaDesc.substring(0, 160), { width: CONTENT_W - 28 }) + 24);
+  fillRRect(MARGIN, safeY(), CONTENT_W, descH, 8, C.slate50);
+  strokeRRect(MARGIN, safeY(), CONTENT_W, descH, 8, C.slate200, 0.5);
+
+  const dRowY = safeY();
+  doc.font(F.bold).fontSize(7.5).fillColor(C.slate400)
+     .text("META DESCRIPTION", MARGIN + 14, dRowY + 8, { characterSpacing: 0.8, lineBreak: false });
+  doc.font(F.reg).fontSize(8.5).fillColor(C.slate700)
+     .text(metaDesc.substring(0, 160), MARGIN + 14, dRowY + 20, { width: CONTENT_W - 100, lineGap: 2 });
+
+  const descLen = metaDesc.length;
+  const descOk = descLen >= 120 && descLen <= 160;
+  const descChip = descOk ? "✓ Optimal" : descLen < 120 ? "⚠ Too short" : "⚠ Too long";
+  fillRRect(PAGE_W - MARGIN - 90, dRowY + 12, 84, 18, 9, descOk ? C.greenTint : "#fffbeb");
+  doc.font(F.bold).fontSize(7).fillColor(descOk ? C.green : "#f59e0b")
+     .text(descChip, PAGE_W - MARGIN - 88, dRowY + 18, { lineBreak: false });
+
+  doc.y = dRowY + descH + 16;
+
+  // ═══════════════════════════════════════════════════════════════
+  // SECTION — HEADING STRUCTURE
+  // ═══════════════════════════════════════════════════════════════
+  sectionHead("HEADING STRUCTURE & DOCUMENT HIERARCHY");
+
+  const h1s = scan.metaData?.headings?.h1 || [];
+  const h2s = scan.metaData?.headings?.h2 || [];
+  const h3s = scan.metaData?.headings?.h3 || [];
+
+  const headingStats = [
+    { tag: "H1", count: h1s.length, ideal: "Exactly 1", ok: h1s.length === 1, color: C.green, sample: h1s[0] },
+    { tag: "H2", count: h2s.length, ideal: "2 – 8",    ok: h2s.length >= 2 && h2s.length <= 8, color: C.blue,   sample: h2s[0] },
+    { tag: "H3", count: h3s.length, ideal: "Any",       ok: true,                                color: C.purple, sample: h3s[0] },
   ];
 
-  checklist.forEach((check) => {
-    checkPageBreak(38);
+  const hCardW = (CONTENT_W - 16) / 3;
 
-    // Draw little green bullet circle index
-    doc
-      .circle(58, doc.y + 8, 4)
-      .fill(brandGreen);
+  guard(90);
+  headingStats.forEach((h, i) => {
+    const hx = MARGIN + i * (hCardW + 8);
+    const hy = safeY();
 
-    // Print check title
-    doc
-      .fillColor(textDark)
-      .fontSize(9.5)
-      .font(boldFont)
-      .text(check.name, 72, doc.y, { characterSpacing: 0.3 });
+    fillRRect(hx, hy, hCardW, 78, 8, C.white);
+    strokeRRect(hx, hy, hCardW, 78, 8, h.ok ? C.greenMid : C.slate200, 0.75);
 
-    // Print check value (handles multi-line description wrap)
-    doc
-      .fillColor(textMuted)
-      .fontSize(8.5)
-      .font(regularFont)
-      .text(check.value, 185, doc.y, { width: 360, align: "left", lineGap: 2.5 });
+    // Tag pill
+    fillRRect(hx + 10, hy + 10, 28, 16, 8, h.ok ? C.greenTint : C.slate100);
+    doc.font(F.bold).fontSize(8).fillColor(h.ok ? C.green : C.slate500)
+       .text(h.tag, hx + 15, hy + 14, { lineBreak: false });
 
-    doc.y = doc.y + doc.heightOfString(check.value, { width: 360 }) + 8;
+    // Count
+    doc.font(F.bold).fontSize(20).fillColor(C.slate900)
+       .text(String(h.count), hx + 48, hy + 8, { lineBreak: false });
+
+    // Status
+    const statusLabel = h.ok ? "Optimal" : "Review";
+    fillRRect(hx + hCardW - 56, hy + 10, 48, 14, 7, h.ok ? C.greenTint : "#fef9c3");
+    doc.font(F.bold).fontSize(6.5).fillColor(h.ok ? C.greenDark : "#92400e")
+       .text(statusLabel, hx + hCardW - 54, hy + 14, { lineBreak: false });
+
+    // Sample text
+    if (h.sample) {
+      const sample = h.sample.substring(0, 30) + (h.sample.length > 30 ? "…" : "");
+      doc.font(F.italic).fontSize(7).fillColor(C.slate400)
+         .text(`"${sample}"`, hx + 10, hy + 52, { width: hCardW - 20, lineBreak: false });
+    } else {
+      doc.font(F.italic).fontSize(7).fillColor(C.slate400)
+         .text("No headings found", hx + 10, hy + 52, { lineBreak: false });
+    }
   });
 
-  // ----------------------------------------------------
-  // 6. AI SUGGESTIONS PLAN (With Left-Border Callout Card)
-  // ----------------------------------------------------
-  doc.y = doc.y + 15;
-  checkPageBreak(120);
+  doc.y = safeY() + 78 + 16;
 
-  doc
-    .fillColor(textDark)
-    .fontSize(11)
-    .font(boldFont)
-    .text("AI SIMPLE OPTIMIZATION PLAN", 50, doc.y, { characterSpacing: 0.5 });
+  // ═══════════════════════════════════════════════════════════════
+  // SECTION — TECHNICAL SIGNALS
+  // ═══════════════════════════════════════════════════════════════
+  sectionHead("TECHNICAL SEO SIGNALS");
 
-  doc.y = doc.y + 10;
-  
-  const aiSum = scan.aiSuggestions?.summary || "Analysis successfully generated. Review priorities below.";
-  const summaryHeight = doc.heightOfString(aiSum, { width: 460 }) + 22;
+  const ssl           = scan.summary?.sslSecure;
+  const mobile        = scan.summary?.mobileResponsive;
+  const missingAlts   = scan.metaData?.imagesWithoutAltCount || 0;
+  const internalLinks = scan.summary?.linksAnalysis?.internalCount || 0;
+  const externalLinks = scan.summary?.linksAnalysis?.externalCount || 0;
+  const brokenLinks   = scan.summary?.linksAnalysis?.brokenCount || 0;
 
-  checkPageBreak(summaryHeight + 15);
+  const signals = [
+    { label: "HTTPS / SSL",        ok: ssl,          pass: "Secure HTTPS active",       fail: "No SSL certificate"     },
+    { label: "Mobile Responsive",  ok: mobile,       pass: "Viewport tag present",      fail: "No viewport meta tag"   },
+    { label: "Image Alt Tags",     ok: missingAlts === 0, pass: "All images labelled", fail: `${missingAlts} missing`  },
+    { label: "Internal Links",     ok: internalLinks > 0, pass: `${internalLinks} found`, fail: "None found"           },
+    { label: "External Links",     ok: externalLinks >= 0, pass: `${externalLinks} found`, fail: "None found"          },
+    { label: "Broken Links",       ok: brokenLinks === 0, pass: "None detected",        fail: `${brokenLinks} broken`  },
+  ];
 
-  // Draw light green callout box with solid green left border
-  const rectY = doc.y;
-  doc
-    .rect(50, rectY, 495, summaryHeight)
-    .fill("#f0fdf4");
+  const sigColW = (CONTENT_W - 10) / 2;
 
-  doc
-    .rect(50, rectY, 4, summaryHeight)
-    .fill(brandGreen);
+  signals.forEach((sig, i) => {
+    const col = i % 2;
+    const isNew = i > 0 && col === 0;
+    if (isNew) gap(8);
 
-  doc
-    .fillColor(brandDarkGreen)
-    .fontSize(9.5)
-    .font(boldFont)
-    .text("AI EXECUTIVE SUMMARY", 65, rectY + 10, { characterSpacing: 0.4 });
+    const sx = MARGIN + col * (sigColW + 10);
+    if (col === 0) guard(34);
+    const sy = safeY();
 
-  doc
-    .fillColor("#0f766e")
-    .fontSize(8.5)
-    .font(italicFont)
-    .text(aiSum, 65, rectY + 23, { width: 460, lineGap: 3.5 });
+    fillRRect(sx, sy, sigColW, 28, 6, sig.ok ? C.greenTint : "#fff1f2");
+    strokeRRect(sx, sy, sigColW, 28, 6, sig.ok ? C.greenMid : "#fecdd3", 0.5);
 
-  // Update Y coordinate below callout box
-  doc.y = rectY + summaryHeight + 20;
+    // Dot
+    doc.circle(sx + 14, sy + 14, 5).fillColor(sig.ok ? C.green : "#f43f5e").fill();
 
-  // Print step-by-step actionable advice
-  checkPageBreak(120);
+    doc.font(F.bold).fontSize(7.5).fillColor(C.slate700)
+       .text(sig.label, sx + 24, sy + 6, { lineBreak: false });
+    doc.font(F.reg).fontSize(7).fillColor(sig.ok ? C.greenDark : "#be123c")
+       .text(sig.ok ? sig.pass : sig.fail, sx + 24, sy + 16, { lineBreak: false });
 
-  doc
-    .fillColor(textDark)
-    .fontSize(10)
-    .font(boldFont)
-    .text("CRITICAL ACTION PLAN TASKS", 50, doc.y, { characterSpacing: 0.5 });
+    if (col === 1) gap(28 + 4);
+  });
 
-  doc.y = doc.y + 10;
+  gap(12);
 
-  const tech = scan.aiSuggestions?.technicalFixes || [];
-  const content = scan.aiSuggestions?.contentImprovements || [];
-  const perfTips = scan.aiSuggestions?.performanceTips || [];
-  const combinedAdvices = [...tech, ...content, ...perfTips].slice(0, 4);
+  // ═══════════════════════════════════════════════════════════════
+  // SECTION — KEYWORD DENSITY
+  // ═══════════════════════════════════════════════════════════════
+  const keywords = scan.summary?.keywordDensity || [];
+  if (keywords.length > 0) {
+    sectionHead("TOP KEYWORD DENSITY ANALYSIS");
 
-  if (combinedAdvices.length > 0) {
-    combinedAdvices.forEach((advice) => {
-      const height = doc.heightOfString(`•   ${advice}`, { width: 480 }) + 8;
-      checkPageBreak(height);
+    guard(keywords.length * 26 + 12);
 
-      doc
-        .fillColor(textDark)
-        .fontSize(9)
-        .font(regularFont)
-        .text(`•   ${advice}`, 55, doc.y, { width: 480, lineGap: 3 });
-      
-      doc.y = doc.y + height;
+    keywords.forEach((kw, i) => {
+      const kwY = safeY();
+
+      // Alternating row
+      if (i % 2 === 0) {
+        fillRRect(MARGIN, kwY, CONTENT_W, 24, 0, C.slate50);
+      }
+
+      // Rank badge
+      fillRRect(MARGIN + 4, kwY + 4, 16, 16, 4, C.green);
+      doc.font(F.bold).fontSize(7).fillColor(C.white)
+         .text(String(i + 1), MARGIN + 4, kwY + 8, { width: 16, align: "center", lineBreak: false });
+
+      // Keyword
+      doc.font(F.bold).fontSize(8.5).fillColor(C.slate800)
+         .text(kw.word, MARGIN + 26, kwY + 7, { lineBreak: false });
+
+      // Count
+      doc.font(F.reg).fontSize(7.5).fillColor(C.slate500)
+         .text(`${kw.count}×`, MARGIN + 180, kwY + 7, { lineBreak: false });
+
+      // Density bar
+      const barFullW = 180;
+      const barX = MARGIN + 230;
+      const maxDensity = keywords[0]?.density || 1;
+      const filled = Math.max(2, barFullW * (kw.density / maxDensity));
+
+      fillRRect(barX, kwY + 9, barFullW, 6, 3, C.slate200);
+      fillRRect(barX, kwY + 9, filled, 6, 3, C.green);
+
+      // Density %
+      doc.font(F.bold).fontSize(7.5).fillColor(C.slate600)
+         .text(`${kw.density}%`, barX + barFullW + 8, kwY + 7, { lineBreak: false });
+
+      gap(24);
     });
-  } else {
-    doc
-      .fillColor(textMuted)
-      .fontSize(9)
-      .font(italicFont)
-      .text("No critical actions flagged. Your website follows foundational SEO structures perfectly.", 55, doc.y);
-    doc.y = doc.y + 15;
+    gap(8);
   }
 
-  // ----------------------------------------------------
-  // 7. RUNNING FOOTER
-  // ----------------------------------------------------
-  doc.y = doc.y + 30;
-  checkPageBreak(30);
+  // ═══════════════════════════════════════════════════════════════
+  // SECTION — AI OPTIMIZATION PLAN
+  // ═══════════════════════════════════════════════════════════════
+  sectionHead("AI-POWERED OPTIMIZATION RECOMMENDATIONS");
 
-  doc
-    .moveTo(50, 770)
-    .lineTo(545, 770)
-    .strokeColor(borderLight)
-    .lineWidth(0.5)
-    .stroke();
+  // Executive Summary callout
+  const aiSummary = scan.aiSuggestions?.summary || "Analysis generated. Review prioritized recommendations below.";
+  const sumH = doc.heightOfString(aiSummary, { width: CONTENT_W - 30, lineGap: 2 }) + 28;
 
-  doc
-    .fontSize(7.5)
-    .fillColor(textMuted)
-    .text("This report is generated dynamically by Search Pulse reporting systems. All score dimensions calculated represent structural code elements parsed during crawler requests.", 50, 780, { align: "center", width: 495 });
+  guard(sumH + 10);
 
+  const sumY = safeY();
+  fillRRect(MARGIN, sumY, CONTENT_W, sumH, 10, C.greenTint);
+  doc.rect(MARGIN, sumY, 4, sumH).fillColor(C.green).fill(); // solid left bar
+  strokeRRect(MARGIN, sumY, CONTENT_W, sumH, 10, C.greenMid, 0.75);
+
+  doc.font(F.bold).fontSize(7.5).fillColor(C.green)
+     .text("✦  EXECUTIVE SUMMARY", MARGIN + 16, sumY + 10, { characterSpacing: 0.6, lineBreak: false });
+  doc.font(F.italic).fontSize(8.5).fillColor(C.slate700)
+     .text(aiSummary, MARGIN + 16, sumY + 22, { width: CONTENT_W - 30, lineGap: 2 });
+
+  doc.y = sumY + sumH + 16;
+
+  // ── Structured subsections ─────────────────────────────────────
+  const aiSections = [
+    {
+      title: "🔧  TECHNICAL FIXES",
+      color: C.indigo,
+      bg:    "#eef2ff",
+      items: scan.aiSuggestions?.technicalFixes || [],
+    },
+    {
+      title: "✍️  CONTENT IMPROVEMENTS",
+      color: C.blue,
+      bg:    "#f0f9ff",
+      items: scan.aiSuggestions?.contentImprovements || [],
+    },
+    {
+      title: "⚡  PERFORMANCE TIPS",
+      color: "#f59e0b",
+      bg:    "#fffbeb",
+      items: scan.aiSuggestions?.performanceTips || [],
+    },
+    {
+      title: "🚨  PRIORITY ISSUES",
+      color: "#f43f5e",
+      bg:    "#fff1f2",
+      items: scan.aiSuggestions?.priorityIssues || [],
+    },
+  ];
+
+  aiSections.forEach((sec) => {
+    if (!sec.items || sec.items.length === 0) return;
+
+    const secH = sec.items.reduce((acc, item) => {
+      return acc + doc.heightOfString(`• ${item}`, { width: CONTENT_W - 28, lineGap: 2 }) + 8;
+    }, 36);
+
+    guard(secH + 12);
+
+    const secY = safeY();
+    fillRRect(MARGIN, secY, CONTENT_W, secH, 8, sec.bg);
+    strokeRRect(MARGIN, secY, CONTENT_W, secH, 8, sec.color + "44", 0.5);
+    doc.rect(MARGIN, secY, 3, secH).fillColor(sec.color).fill();
+
+    doc.font(F.bold).fontSize(8).fillColor(sec.color)
+       .text(sec.title, MARGIN + 14, secY + 10, { characterSpacing: 0.3, lineBreak: false });
+
+    let itemY = secY + 26;
+    sec.items.forEach((item) => {
+      const itemH = doc.heightOfString(`• ${item}`, { width: CONTENT_W - 28, lineGap: 2 }) + 6;
+
+      // Guard within the section
+      if (itemY + itemH > PAGE_H - 65) {
+        doc.addPage();
+        itemY = MARGIN + 46;
+      }
+
+      doc.font(F.reg).fontSize(8.5).fillColor(C.slate700)
+         .text(`• ${item}`, MARGIN + 16, itemY, { width: CONTENT_W - 28, lineGap: 2 });
+      itemY += itemH;
+    });
+
+    doc.y = secY + secH + 12;
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // FINAL PAGE — CLOSING BADGE (only if there's reasonable space)
+  // ═══════════════════════════════════════════════════════════════
+  // If remaining space on current page is less than 100px, add a page
+  if (safeY() > PAGE_H - 130) {
+    doc.addPage();
+  }
+
+  gap(20);
+  const badgeY = safeY();
+  const badgeH = 72;
+
+  fillRRect(MARGIN, badgeY, CONTENT_W, badgeH, 12, C.slate900);
+  doc.circle(PAGE_W - MARGIN - 40, badgeY + badgeH / 2, 30)
+     .fillOpacity(0.08).fillColor(C.green).fill();
+  doc.fillOpacity(1);
+
+  doc.font(F.bold).fontSize(13).fillColor(C.white)
+     .text("Search Pulse", MARGIN + 20, badgeY + 14, { lineBreak: false });
+  doc.font(F.reg).fontSize(7.5).fillColor(C.slate400)
+     .text("Smart SEO Intelligence for modern websites.", MARGIN + 20, badgeY + 32, { lineBreak: false });
+  doc.font(F.bold).fontSize(7).fillColor(C.green)
+     .text("searchpulse.vercel.app", MARGIN + 20, badgeY + 46, { lineBreak: false });
+
+  // Seal
+  fillRRect(PAGE_W - MARGIN - 80, badgeY + 12, 72, 48, 8, C.green);
+  doc.font(F.bold).fontSize(7).fillColor(C.white)
+     .text("CERTIFIED", PAGE_W - MARGIN - 80, badgeY + 18, { width: 72, align: "center", lineBreak: false });
+  doc.font(F.bold).fontSize(14).fillColor(C.white)
+     .text("✓", PAGE_W - MARGIN - 80, badgeY + 26, { width: 72, align: "center", lineBreak: false });
+  doc.font(F.bold).fontSize(6.5).fillColor(C.white)
+     .text("SEO AUDITED", PAGE_W - MARGIN - 80, badgeY + 44, { width: 72, align: "center", characterSpacing: 0.5, lineBreak: false });
+
+  // ── END ────────────────────────────────────────────────────────
   doc.end();
 };

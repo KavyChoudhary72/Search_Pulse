@@ -64,6 +64,38 @@ export default function Dashboard() {
   const [activeDrawerItem, setActiveDrawerItem] = useState(null); // selected checklist row item
   const [activeCategoryFilter, setActiveCategoryFilter] = useState(null); // active breakdown slice filter
   const [hoveredTooltip, setHoveredTooltip] = useState(null); // tracks active custom tooltip ID
+  const [pdfLoading, setPdfLoading] = useState(false); // PDF download loading state
+
+  // Mobile-compatible PDF download using blob fetch
+  const handleDownloadPdf = async () => {
+    if (pdfLoading || !currentScan?._id) return;
+    setPdfLoading(true);
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || "https://search-pulse-backend.onrender.com";
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${apiBase}/api/analysis/export/${currentScan._id}`, {
+        method: "GET",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!res.ok) throw new Error("PDF generation failed");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `SearchPulse-Report-${currentScan._id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PDF download failed:", err);
+      alert("Could not download the PDF. Please try again.");
+    } finally {
+      setPdfLoading(false);
+    }
+  };
   
   // LIVE RECALCULATION STATES (FIXING SIMULATOR)
   const [resolvedIssues, setResolvedIssues] = useState({}); // { itemId: boolean }
@@ -458,14 +490,23 @@ export default function Dashboard() {
               {copied ? "Link Copied!" : "Share Report"}
             </button>
 
-            <a
-              href={`${import.meta.env.VITE_API_URL || "https://search-pulse-backend.onrender.com"}/api/analysis/export/${currentScan._id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black transition-all text-xs active:scale-95 shadow-md shadow-emerald-600/10"
+            <button
+              onClick={handleDownloadPdf}
+              disabled={pdfLoading}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black transition-all text-xs active:scale-95 shadow-md shadow-emerald-600/10"
             >
-              <Download size={13} /> Download PDF
-            </a>
+              {pdfLoading ? (
+                <>
+                  <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  </svg>
+                  Generating…
+                </>
+              ) : (
+                <><Download size={13} /> Download PDF</>
+              )}
+            </button>
           </div>
         </div>
 

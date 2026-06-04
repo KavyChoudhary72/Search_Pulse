@@ -174,9 +174,15 @@ export const exportScanPdf = async (req, res, next) => {
       });
     }
 
+    const filename = `SearchPulse-Report-${scan._id}.pdf`;
+
+    // Force download on all devices including mobile browsers
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="SearchPulse-Report-${scan._id}.pdf"`);
-    
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
+
     generateSeoPdf(scan, res);
   } catch (error) {
     next(error);
