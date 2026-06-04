@@ -707,8 +707,8 @@ export default function Dashboard() {
                   <h3 className="text-xl font-black text-slate-900 mt-1">Overall SEO Score Trend</h3>
                 </div>
 
-                <div className="w-full h-60 mt-2">
-                  <ResponsiveContainer width="100%" height="100%">
+                <div className="w-full mt-2" style={{ height: 240 }}>
+                  <ResponsiveContainer width="100%" height={240}>
                     <AreaChart data={lineChartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
                       <defs>
                         <linearGradient id="mintGradient" x1="0" y1="0" x2="0" y2="1">
@@ -732,8 +732,8 @@ export default function Dashboard() {
                   <p className="text-[10px] text-slate-400 font-bold mt-1">Click a category segment below to filter descriptions.</p>
                 </div>
 
-                <div className="relative w-full h-40 flex items-center justify-center">
-                  <ResponsiveContainer width="100%" height="100%">
+                <div className="relative w-full flex items-center justify-center" style={{ height: 160 }}>
+                  <ResponsiveContainer width="100%" height={160}>
                     <PieChart>
                       <Pie
                         data={donutData}

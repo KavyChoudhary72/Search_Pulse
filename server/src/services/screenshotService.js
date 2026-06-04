@@ -5,9 +5,8 @@ let cachedBrowser = null;
 
 const getBrowser = async () => {
   // If browser is active and connected, reuse it
-  if (cachedBrowser && cachedBrowser.process() && cachedBrowser.process().signalCode === null) {
+  if (cachedBrowser) {
     try {
-      // Small test to verify connection
       await cachedBrowser.version();
       return cachedBrowser;
     } catch (e) {
@@ -16,6 +15,7 @@ const getBrowser = async () => {
     }
   }
 
+  // Additional flags required for cloud/containerized environments (Render, Railway, etc.)
   cachedBrowser = await puppeteer.launch({
     headless: true,
     ignoreHTTPSErrors: true,
@@ -23,9 +23,16 @@ const getBrowser = async () => {
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-zygote",
+      "--single-process",
       "--disable-web-security",
       "--ignore-certificate-errors",
       "--ignore-certificate-errors-spki-list",
+      "--disable-extensions",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
     ],
   });
   return cachedBrowser;
