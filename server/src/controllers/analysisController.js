@@ -46,20 +46,26 @@ export const startAnalysis = async (req, res, next) => {
       isEstimated: true,
     };
 
-    // ── STEP 3: Generate instant fallback AI suggestions (synchronous) ────
-    const instantAi = generateFallbackSuggestions({
+    // ── STEP 3: Generate AI suggestions synchronously ────
+    const aiPayload = {
       url,
       seoScore: evaluation.seoScore,
       issues: evaluation.issues,
       summary: evaluation.summary,
+      performance: { performance, accessibility, bestPractices, metrics },
       meta: {
         metaTitle: rawHtmlData.metaTitle,
         metaDescription: rawHtmlData.metaDescription,
         headings: rawHtmlData.headings,
       },
-    });
+    };
 
-    // ── STEP 4: Save scan immediately with fallback AI, no screenshot yet ─
+    const aiSuggestions = await generateSeoSuggestions(aiPayload);
+
+    // ── STEP 4: Generate visual screenshot URL via Microlink (instantly) ──
+    const screenshot = `https://api.microlink.io/?url=${encodeURIComponent(url)}&screenshot=true&embed=screenshot.url`;
+
+    // ── STEP 5: Save scan with all data populated ─
     const scan = await Scan.create({
       userId: req.user._id,
       url,
@@ -83,12 +89,12 @@ export const startAnalysis = async (req, res, next) => {
         keywordDensity: rawHtmlData.keywordDensity,
       },
       metrics,
-      aiSuggestions: instantAi,
-      screenshot: null,
-      enriched: false, // flag: background job not done yet
+      aiSuggestions,
+      screenshot,
+      enriched: true, // fully loaded in one go!
     });
 
-    // ── STEP 5: Respond immediately — user sees results in ~2-3s ─────────
+    // ── STEP 6: Respond with completed scan document ─────────
     res.status(200).json({ success: true, data: scan });
 
 
@@ -97,8 +103,6 @@ export const startAnalysis = async (req, res, next) => {
     next(error);
   }
 };
-
-const activeEnrichments = new Set();
 
 export const lazyLoadAnalysis = async (req, res, next) => {
   try {
@@ -109,83 +113,6 @@ export const lazyLoadAnalysis = async (req, res, next) => {
         message: "Scan report not found or you do not have permission to audit it.",
       });
     }
-
-    // If already enriched, return immediately
-    if (scan.enriched) {
-      return res.status(200).json({ success: true, data: scan });
-    }
-
-    // If not already running, start enrichment in background
-    const scanIdStr = scan._id.toString();
-    if (!activeEnrichments.has(scanIdStr)) {
-      activeEnrichments.add(scanIdStr);
-
-      // Trigger background enrichment without blocking the response
-      setImmediate(async () => {
-        try {
-          console.log(`🚀 Starting background enrichment for: ${scan.url}`);
-          
-          const aiPayload = {
-            url: scan.url,
-            seoScore: scan.scores.seo,
-            issues: scan.issues,
-            summary: {
-              totalImages: scan.summary.totalImages,
-              missingAlts: scan.summary.missingAlts,
-              h1Count: scan.summary.h1Count,
-              h2Count: scan.summary.h2Count,
-              h3Count: scan.summary.h3Count,
-            },
-            performance: {
-              performance: scan.scores.performance,
-              accessibility: scan.scores.accessibility,
-              bestPractices: scan.scores.bestPractices,
-              metrics: scan.metrics,
-            },
-            meta: {
-              metaTitle: scan.metaData.title,
-              metaDescription: scan.metaData.description,
-              headings: scan.metaData.headings,
-            },
-          };
-
-          const [aiSuggestions, screenshot, pageSpeedData] = await Promise.all([
-            generateSeoSuggestions(aiPayload),
-            captureMobileSnapshot(scan.url),
-            getPageSpeedData(scan.url),
-          ]);
-
-          const updateData = {
-            aiSuggestions,
-            screenshot,
-            enriched: true,
-          };
-
-          if (pageSpeedData) {
-            updateData.scores = {
-              seo: pageSpeedData.seo !== null ? pageSpeedData.seo : scan.scores.seo,
-              performance: pageSpeedData.performance !== null ? pageSpeedData.performance : scan.scores.performance,
-              accessibility: pageSpeedData.accessibility !== null ? pageSpeedData.accessibility : scan.scores.accessibility,
-              bestPractices: pageSpeedData.bestPractices !== null ? pageSpeedData.bestPractices : scan.scores.bestPractices,
-            };
-            updateData.metrics = {
-              firstContentfulPaint: pageSpeedData.metrics?.firstContentfulPaint || scan.metrics.firstContentfulPaint,
-              speedIndex: pageSpeedData.metrics?.speedIndex || scan.metrics.speedIndex,
-              largestContentfulPaint: pageSpeedData.metrics?.largestContentfulPaint || scan.metrics.largestContentfulPaint,
-              isEstimated: false,
-            };
-          }
-
-          await Scan.findByIdAndUpdate(scan._id, updateData);
-          console.log(`✅ Background enrichment complete for: ${scan.url}`);
-        } catch (bgErr) {
-          console.error("⚠️ Background enrichment failed:", bgErr.message);
-        } finally {
-          activeEnrichments.delete(scanIdStr);
-        }
-      });
-    }
-
     return res.status(200).json({ success: true, data: scan });
   } catch (error) {
     next(error);

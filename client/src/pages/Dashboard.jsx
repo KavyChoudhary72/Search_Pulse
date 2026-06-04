@@ -56,7 +56,6 @@ export default function Dashboard() {
   const currentScan = useSeoStore((state) => state.currentScan);
   const isLoading = useSeoStore((state) => state.isLoading);
   const setActivePage = useSeoStore((state) => state.setActivePage);
-  const lazyLoadScan = useSeoStore((state) => state.lazyLoadScan);
   const [copied, setCopied] = useState(false);
   const [showIssues, setShowIssues] = useState(false);
 
@@ -121,21 +120,7 @@ export default function Dashboard() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Poll for background enrichment results if the scan is not yet enriched
-  useEffect(() => {
-    if (!currentScan || currentScan.enriched) return;
-
-    // Trigger the enrichment/poll immediately on mount
-    lazyLoadScan(currentScan._id);
-
-    const interval = setInterval(() => {
-      lazyLoadScan(currentScan._id);
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [currentScan?._id, currentScan?.enriched, lazyLoadScan]);
-
-  const isLazyLoading = currentScan && !currentScan.enriched;
+  const isLazyLoading = false;
 
   if (isLoading) {
     return (
