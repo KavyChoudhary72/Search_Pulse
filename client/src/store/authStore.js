@@ -61,20 +61,21 @@ export const useAuthStore = create((set) => ({
   },
 
   logout: async () => {
-    set({ loading: true });
+    // Clear client-side state immediately to prevent UI freezes
+    localStorage.removeItem("token");
+    delete axios.defaults.headers.common["Authorization"];
+    set({
+      user: null,
+      isAuthenticated: false,
+      loading: false,
+      error: null,
+    });
+
+    // Fire-and-forget backend request in the background
     try {
-      await axios.post(`${API_BASE_URL}/logout`);
+      axios.post(`${API_BASE_URL}/logout`).catch(() => {});
     } catch (err) {
       console.error("Logout request error:", err.message);
-    } finally {
-      localStorage.removeItem("token");
-      delete axios.defaults.headers.common["Authorization"];
-      set({
-        user: null,
-        isAuthenticated: false,
-        loading: false,
-        error: null,
-      });
     }
   },
 

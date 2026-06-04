@@ -62,8 +62,8 @@ export const startAnalysis = async (req, res, next) => {
 
     const aiSuggestions = await generateSeoSuggestions(aiPayload);
 
-    // ── STEP 4: Generate visual screenshot URL via Microlink (instantly) ──
-    const screenshot = `https://api.microlink.io/?url=${encodeURIComponent(url)}&screenshot=true&embed=screenshot.url`;
+    // ── STEP 4: Generate visual screenshot URL via Thum.io (instantly) ──
+    const screenshot = `https://image.thum.io/get/iphone/width/400/${url}`;
 
     // ── STEP 5: Save scan with all data populated ─
     const scan = await Scan.create({
