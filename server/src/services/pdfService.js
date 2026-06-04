@@ -1,557 +1,479 @@
 import PDFDocument from "pdfkit";
 
 /**
- * Generates a premium, fully-designed A4 SEO Audit Report PDF
- * matching the Search Pulse website theme (Emerald + Slate palette).
- * Fixes: empty trailing pages, mobile download headers, aesthetic layout.
+ * Generates a premium A4 SEO Audit Report PDF matching the Search Pulse brand.
+ * Safe for Render deployment — no system fonts, no emoji in Helvetica, no undefined colors.
  */
-export const generateSeoPdf = (scan, stream) => {
-  const PAGE_W = 595.28;
-  const PAGE_H = 841.89;
-  const MARGIN = 48;
-  const CONTENT_W = PAGE_W - MARGIN * 2;
+export const generateSeoPdf = (scan, res) => {
+  // ── Page dimensions ──────────────────────────────────────────
+  const PW = 595.28;   // A4 width  (pt)
+  const PH = 841.89;   // A4 height (pt)
+  const ML = 48;       // left margin
+  const MR = 48;       // right margin
+  const CW = PW - ML - MR; // content width
 
-  // ── Brand Palette ──────────────────────────────────────────────
-  const C = {
-    green:       "#10b981",
-    greenDark:   "#059669",
-    greenDeep:   "#064e3b",
-    greenTint:   "#ecfdf5",
-    greenMid:    "#d1fae5",
-    blue:        "#0ea5e9",
-    purple:      "#8b5cf6",
-    indigo:      "#6366f1",
-    slate900:    "#0f172a",
-    slate800:    "#1e293b",
-    slate700:    "#334155",
-    slate500:    "#64748b",
-    slate400:    "#94a3b8",
-    slate200:    "#e2e8f0",
-    slate100:    "#f1f5f9",
-    slate50:     "#f8fafc",
-    white:       "#ffffff",
+  // ── Brand colours ─────────────────────────────────────────────
+  const G = {
+    green:    "#10b981",
+    gDark:    "#059669",
+    gTint:    "#ecfdf5",
+    gMid:     "#d1fae5",
+    blue:     "#0ea5e9",
+    purple:   "#8b5cf6",
+    indigo:   "#6366f1",
+    amber:    "#f59e0b",
+    rose:     "#f43f5e",
+    s900:     "#0f172a",
+    s800:     "#1e293b",
+    s700:     "#334155",
+    s600:     "#475569",
+    s500:     "#64748b",
+    s400:     "#94a3b8",
+    s300:     "#cbd5e1",
+    s200:     "#e2e8f0",
+    s100:     "#f1f5f9",
+    s50:      "#f8fafc",
+    white:    "#ffffff",
   };
 
+  // ── Fonts (built-in, always available on any Node.js env) ─────
+  const REG  = "Helvetica";
+  const BOLD = "Helvetica-Bold";
+  const ITAL = "Helvetica-Oblique";
+
+  // ── PDFKit doc ────────────────────────────────────────────────
   const doc = new PDFDocument({
     size: "A4",
     margin: 0,
-    autoFirstPage: true,
+    autoFirstPage: false,      // We add pages manually to control decoration
+    bufferPages: false,
     info: {
-      Title: `SearchPulse SEO Report — ${scan.url}`,
+      Title: `Search Pulse SEO Report`,
       Author: "Search Pulse",
       Subject: "SEO Audit Report",
-      Keywords: "SEO, performance, accessibility, best-practices",
     },
   });
 
-  doc.pipe(stream);
+  doc.pipe(res);
 
-  // ── Font Setup ─────────────────────────────────────────────────
-  let F = { reg: "Helvetica", bold: "Helvetica-Bold", italic: "Helvetica-Oblique" };
+  // ── Drawing helpers ───────────────────────────────────────────
+  const rr = (x, y, w, h, r, color) =>
+    doc.roundedRect(x, y, w, h, r).fillColor(color).fill();
 
-  // ── Page State ─────────────────────────────────────────────────
+  const rrStroke = (x, y, w, h, r, color, lw = 0.6) =>
+    doc.roundedRect(x, y, w, h, r).strokeColor(color).lineWidth(lw).stroke();
+
+  const hrule = (y, color = G.s200, lw = 0.5) =>
+    doc.moveTo(ML, y).lineTo(PW - MR, y).strokeColor(color).lineWidth(lw).stroke();
+
+  const txt = (str, x, y, font, size, color, opts = {}) => {
+    doc.font(font).fontSize(size).fillColor(color)
+       .text(String(str ?? ""), x, y, { lineBreak: false, ...opts });
+  };
+
+  // ── Y cursor helpers ──────────────────────────────────────────
+  let curY = 0;
+  const getY = () => doc.y || curY;
+  const setY = (y) => { doc.y = y; curY = y; };
+  const addY = (dy) => setY(getY() + dy);
+
+  // Safe usable bottom of page (above footer bar)
+  const BOTTOM = PH - 36;
+
+  // ── Page management ───────────────────────────────────────────
   let pageNum = 0;
 
-  // ── Helpers ────────────────────────────────────────────────────
-
-  /** Clamp doc.y to avoid going below usable area */
-  const safeY = (fallback = MARGIN + 20) => {
-    const y = doc.y;
-    return (y === undefined || y === null || isNaN(y)) ? fallback : y;
-  };
-
-  /** Absolute positioned text — won't move cursor */
-  const absText = (text, x, y, opts = {}) => {
-    doc.text(text, x, y, { lineBreak: false, ...opts });
-  };
-
-  /** Draw a filled rounded rect */
-  const fillRRect = (x, y, w, h, r, color) => {
-    doc.roundedRect(x, y, w, h, r).fillColor(color).fill();
-  };
-
-  /** Draw a stroked rounded rect */
-  const strokeRRect = (x, y, w, h, r, color, lw = 0.75) => {
-    doc.roundedRect(x, y, w, h, r).strokeColor(color).lineWidth(lw).stroke();
-  };
-
-  /** Draw a horizontal rule */
-  const hRule = (y, color = C.slate200, lw = 0.75) => {
-    doc.moveTo(MARGIN, y).lineTo(PAGE_W - MARGIN, y)
-       .strokeColor(color).lineWidth(lw).stroke();
-  };
-
-  /** Page break guard — adds new page if needed */
-  const guard = (need, extraY = 0) => {
-    const used = safeY() + need;
-    if (used > PAGE_H - 65) {
-      doc.addPage();
-      doc.y = MARGIN + 32 + extraY;
-    }
-  };
-
-  /** Vertical spacer */
-  const gap = (px) => { doc.y = safeY() + px; };
-
-  // ── Section heading helper ─────────────────────────────────────
-  const sectionHead = (label, icon = "▸") => {
-    guard(40);
-    const y = safeY();
-
-    // Decorative left accent pill
-    fillRRect(MARGIN, y, 3, 16, 2, C.green);
-
-    doc
-      .font(F.bold).fontSize(9).fillColor(C.slate500)
-      .text(label, MARGIN + 10, y + 1, { characterSpacing: 1.2, lineBreak: false });
-
-    gap(22);
-    hRule(safeY(), C.slate200, 0.5);
-    gap(10);
-  };
-
-  // ── Per-page decoration ────────────────────────────────────────
-  const decoratePage = (isFirst = false) => {
+  const addPage = () => {
+    doc.addPage({ size: "A4", margin: 0 });
     pageNum++;
-
-    // Top thin bar
-    doc.rect(0, 0, PAGE_W, 4).fillColor(C.green).fill();
-
-    if (!isFirst) {
-      // Running header
-      fillRRect(0, 4, PAGE_W, 36, 0, C.slate900);
-      doc.font(F.bold).fontSize(8).fillColor(C.green)
-         .text("SEARCH PULSE", MARGIN, 16, { characterSpacing: 2, lineBreak: false });
-      doc.font(F.reg).fontSize(7.5).fillColor(C.slate400)
-         .text("  ·  SEO Audit Report", MARGIN + 78, 16, { lineBreak: false });
-      doc.font(F.reg).fontSize(7.5).fillColor(C.slate500)
-         .text(`Page ${pageNum}`, PAGE_W - MARGIN - 40, 16, { lineBreak: false });
-    }
-
-    // Bottom thin bar
-    doc.rect(0, PAGE_H - 26, PAGE_W, 26).fillColor(C.slate900).fill();
-    doc.font(F.italic).fontSize(6.5).fillColor(C.slate500)
-       .text(
-         "Generated by Search Pulse · searchpulse.vercel.app · Confidential",
-         MARGIN, PAGE_H - 16,
-         { lineBreak: false }
-       );
-    doc.font(F.reg).fontSize(6.5).fillColor(C.slate500)
-       .text(
-         `© ${new Date().getFullYear()} Search Pulse`,
-         PAGE_W - MARGIN - 90, PAGE_H - 16,
-         { lineBreak: false }
-       );
+    drawPageChrome(false);
+    setY(ML + 36);
   };
 
-  doc.on("pageAdded", () => decoratePage(false));
+  const guard = (heightNeeded) => {
+    if (getY() + heightNeeded > BOTTOM) addPage();
+  };
 
-  // ═══════════════════════════════════════════════════════════════
+  // ── Page chrome (top bar + header + footer) ───────────────────
+  const drawPageChrome = (isCover) => {
+    // Top green stripe
+    doc.rect(0, 0, PW, 5).fillColor(G.green).fill();
+
+    if (!isCover) {
+      // Dark header band
+      doc.rect(0, 5, PW, 34).fillColor(G.s900).fill();
+      txt("SEARCH PULSE", ML, 15, BOLD, 8, G.green, { characterSpacing: 2 });
+      txt("  SEO Audit Report", ML + 82, 15, REG, 8, G.s500);
+      txt(`Page ${pageNum}`, PW - MR - 38, 15, BOLD, 8, G.s500);
+    }
+
+    // Dark footer band
+    doc.rect(0, PH - 28, PW, 28).fillColor(G.s900).fill();
+    txt("Generated by Search Pulse  |  Confidential",
+        ML, PH - 17, ITAL, 6.5, G.s500);
+    txt(`(c) ${new Date().getFullYear()} Search Pulse`,
+        PW - MR - 90, PH - 17, REG, 6.5, G.s500);
+  };
+
+  // ── Section heading ───────────────────────────────────────────
+  const sectionHead = (label) => {
+    guard(44);
+    const y = getY();
+    rr(ML, y, 4, 16, 2, G.green);
+    txt(label, ML + 12, y + 2, BOLD, 8, G.s600, { characterSpacing: 1 });
+    addY(20);
+    hrule(getY());
+    addY(10);
+  };
+
+  // ═════════════════════════════════════════════════════════════
   // PAGE 1 — COVER
-  // ═══════════════════════════════════════════════════════════════
-  decoratePage(true);
+  // ═════════════════════════════════════════════════════════════
+  doc.addPage({ size: "A4", margin: 0 });
+  pageNum = 1;
+  drawPageChrome(true);
 
-  // ── Hero gradient block ────────────────────────────────────────
-  const heroH = 220;
-  doc.rect(0, 4, PAGE_W, heroH).fillColor(C.slate900).fill();
+  // Hero dark block
+  const HERO_H = 210;
+  doc.rect(0, 5, PW, HERO_H).fillColor(G.s900).fill();
 
-  // Decorative emerald circle blobs (background feel)
-  doc.circle(PAGE_W - 80, 60, 90).fillOpacity(0.07).fillColor(C.green).fill();
-  doc.circle(80, 160, 60).fillOpacity(0.05).fillColor(C.green).fill();
-  doc.fillOpacity(1);
+  // Subtle decorative circles (solid low-opacity approximation)
+  doc.circle(PW - 70, 70, 85).fillColor(G.s800).fill();
+  doc.circle(60, 165, 55).fillColor(G.s800).fill();
 
-  // Brand badge top-left
-  fillRRect(MARGIN, 24, 110, 22, 11, C.green);
-  doc.font(F.bold).fontSize(8.5).fillColor(C.white)
-     .text("⚡ SEARCH PULSE", MARGIN + 8, 30, { characterSpacing: 0.8, lineBreak: false });
+  // Brand badge
+  rr(ML, 22, 118, 22, 11, G.green);
+  txt(">> SEARCH PULSE", ML + 10, 28, BOLD, 8, G.white, { characterSpacing: 0.5 });
 
-  // Main title
-  doc.font(F.bold).fontSize(30).fillColor(C.white)
-     .text("SEO Audit", MARGIN, 76, { lineBreak: false });
-  doc.font(F.bold).fontSize(30).fillColor(C.green)
-     .text(" Report", MARGIN + 115, 76, { lineBreak: false });
-
-  doc.font(F.reg).fontSize(10).fillColor(C.slate400)
-     .text("Comprehensive performance analysis powered by AI", MARGIN, 116, { lineBreak: false });
+  // Title
+  txt("SEO Audit", ML, 72, BOLD, 28, G.white);
+  txt(" Report", ML + 108, 72, BOLD, 28, G.green);
+  txt("Comprehensive website analysis powered by AI", ML, 110, REG, 9.5, G.s400);
 
   // URL pill
-  const urlLabel = (scan.url || "—").replace(/^https?:\/\//, "").substring(0, 55);
-  fillRRect(MARGIN, 144, Math.min(CONTENT_W, urlLabel.length * 6.8 + 32), 26, 13, "#1e293b");
-  doc.font(F.bold).fontSize(9).fillColor(C.green)
-     .text("🔗 ", MARGIN + 10, 151, { lineBreak: false, continued: true })
-     .fillColor(C.slate200)
-     .font(F.reg)
-     .text(urlLabel, { lineBreak: false });
+  const urlClean = (scan.url || "").replace(/^https?:\/\//, "").substring(0, 52);
+  rr(ML, 136, Math.min(CW, urlClean.length * 6.4 + 36), 24, 12, G.s800);
+  txt("[URL]  " + urlClean, ML + 12, 143, BOLD, 8.5, G.green);
 
-  // Crawl date chip
-  const crawlDate = new Date(scan.createdAt).toLocaleDateString("en-US", {
-    weekday: "short", year: "numeric", month: "short", day: "numeric"
+  // Date
+  const crawlDate = new Date(scan.createdAt || Date.now()).toLocaleDateString("en-US", {
+    weekday: "short", year: "numeric", month: "short", day: "numeric",
   });
-  doc.font(F.reg).fontSize(8).fillColor(C.slate500)
-     .text(`Crawled: ${crawlDate}`, MARGIN, 180, { lineBreak: false });
+  txt("Crawled: " + crawlDate, ML, 172, REG, 8, G.s500);
 
-  // ── Score ribbon (4 pills on hero) ────────────────────────────
-  const scores = [
-    { label: "SEO",           value: Math.round(scan.scores?.seo || 0),            color: C.green  },
-    { label: "Performance",   value: Math.round(scan.scores?.performance || 0),     color: C.blue   },
-    { label: "Accessibility", value: Math.round(scan.scores?.accessibility || 0),   color: C.purple },
-    { label: "Best Practices",value: Math.round(scan.scores?.bestPractices || 0),   color: C.indigo },
+  // ── Score pills row ───────────────────────────────────────────
+  const scoreData = [
+    { label: "SEO Score",    value: Math.round(scan.scores?.seo || 0),          color: G.green  },
+    { label: "Performance",  value: Math.round(scan.scores?.performance || 0),   color: G.blue   },
+    { label: "Accessibility",value: Math.round(scan.scores?.accessibility || 0), color: G.purple },
+    { label: "Best Practices",value: Math.round(scan.scores?.bestPractices || 0),color: G.indigo },
   ];
 
-  const pillW = 116, pillH = 72, pillGap = 7;
-  const totalPillsW = pillW * 4 + pillGap * 3;
-  const pillStartX = (PAGE_W - totalPillsW) / 2;
-  const pillY = heroH + 4 + 14;
+  const PILL_W = 116, PILL_H = 74, PILL_GAP = 7;
+  const pillsW = PILL_W * 4 + PILL_GAP * 3;
+  const pillX0 = (PW - pillsW) / 2;
+  const PILL_Y = HERO_H + 5 + 12;
 
-  scores.forEach((s, i) => {
-    const px = pillStartX + i * (pillW + pillGap);
-
+  scoreData.forEach((s, i) => {
+    const px = pillX0 + i * (PILL_W + PILL_GAP);
     // Card
-    fillRRect(px, pillY, pillW, pillH, 10, C.white);
-    strokeRRect(px, pillY, pillW, pillH, 10, C.slate200, 0.5);
-
-    // Top accent
-    fillRRect(px, pillY, pillW, 3, 10, s.color);
-    fillRRect(px, pillY + 3, pillW, 3, 0, s.color); // square bottom of rounded top
-
-    // Score value
-    const scoreX = px + pillW / 2;
-    doc.font(F.bold).fontSize(22).fillColor(C.slate900)
-       .text(`${s.value}%`, px + 6, pillY + 16, { width: pillW - 12, align: "center", lineBreak: false });
-
+    doc.rect(px, PILL_Y, PILL_W, PILL_H).fillColor(G.white).fill();
+    rrStroke(px, PILL_Y, PILL_W, PILL_H, 0, G.s200, 0.5);
+    // Top colour bar
+    doc.rect(px, PILL_Y, PILL_W, 4).fillColor(s.color).fill();
+    // Score
+    txt(`${s.value}%`, px + 6, PILL_Y + 12, BOLD, 22, G.s900,
+        { width: PILL_W - 12, align: "center" });
     // Label
-    doc.font(F.bold).fontSize(6.5).fillColor(C.slate500)
-       .text(s.label.toUpperCase(), px + 4, pillY + pillH - 18, {
-         width: pillW - 8, align: "center", characterSpacing: 0.5, lineBreak: false
-       });
-
+    txt(s.label.toUpperCase(), px + 4, PILL_Y + PILL_H - 20, BOLD, 6, G.s500,
+        { width: PILL_W - 8, align: "center", characterSpacing: 0.4 });
     // Mini progress bar
-    const barY = pillY + pillH - 8;
-    fillRRect(px + 10, barY, pillW - 20, 3, 1.5, C.slate100);
-    fillRRect(px + 10, barY, Math.max(2, (pillW - 20) * s.value / 100), 3, 1.5, s.color);
+    const barY = PILL_Y + PILL_H - 9;
+    rr(px + 8, barY, PILL_W - 16, 4, 2, G.s100);
+    rr(px + 8, barY, Math.max(2, (PILL_W - 16) * s.value / 100), 4, 2, s.color);
   });
 
-  doc.y = pillY + pillH + 22;
+  setY(PILL_Y + PILL_H + 24);
 
-  // ═══════════════════════════════════════════════════════════════
-  // SECTION — METADATA OVERVIEW
-  // ═══════════════════════════════════════════════════════════════
-  sectionHead("PAGE METADATA OVERVIEW");
+  // ═════════════════════════════════════════════════════════════
+  // SECTION — METADATA
+  // ═════════════════════════════════════════════════════════════
+  sectionHead("PAGE METADATA");
 
-  const metaTitle = scan.metaData?.title || "—";
-  const metaDesc  = scan.metaData?.description || "—";
+  const metaTitle = scan.metaData?.title || "Not found";
+  const metaDesc  = scan.metaData?.description || "Not found";
 
   // Title row
   guard(52);
-  fillRRect(MARGIN, safeY(), CONTENT_W, 44, 8, C.slate50);
-  strokeRRect(MARGIN, safeY(), CONTENT_W, 44, 8, C.slate200, 0.5);
+  rr(ML, getY(), CW, 44, 6, G.s50);
+  rrStroke(ML, getY(), CW, 44, 6, G.s200);
+  const mty = getY();
+  txt("PAGE TITLE", ML + 12, mty + 8, BOLD, 7, G.s400, { characterSpacing: 0.7 });
+  txt(metaTitle.substring(0, 72), ML + 12, mty + 19, BOLD, 9, G.s800);
 
-  const rowY = safeY();
-  doc.font(F.bold).fontSize(7.5).fillColor(C.slate400)
-     .text("PAGE TITLE", MARGIN + 14, rowY + 8, { characterSpacing: 0.8, lineBreak: false });
-  doc.font(F.reg).fontSize(9).fillColor(C.slate800)
-     .text(metaTitle.substring(0, 80), MARGIN + 14, rowY + 20, { lineBreak: false });
+  const tLen = metaTitle.length;
+  const tOk  = tLen >= 30 && tLen <= 60;
+  rr(PW - MR - 82, mty + 12, 76, 16, 8, tOk ? G.gTint : "#fffbeb");
+  txt(tOk ? "Optimal length" : tLen < 30 ? "Too short" : "Too long",
+      PW - MR - 80, mty + 17, BOLD, 7, tOk ? G.gDark : G.amber);
 
-  // Title length indicator
-  const titleLen = metaTitle.length;
-  const titleOk = titleLen >= 30 && titleLen <= 60;
-  const titleChip = titleOk ? "✓ Optimal length" : titleLen < 30 ? "⚠ Too short" : "⚠ Too long";
-  const chipColor = titleOk ? C.green : "#f59e0b";
-  fillRRect(PAGE_W - MARGIN - 90, rowY + 12, 84, 18, 9, titleOk ? C.greenTint : "#fffbeb");
-  doc.font(F.bold).fontSize(7).fillColor(chipColor)
-     .text(titleChip, PAGE_W - MARGIN - 88, rowY + 18, { lineBreak: false });
-
-  gap(50);
+  addY(52);
 
   // Description row
   guard(60);
-  const descH = Math.max(52, doc.heightOfString(metaDesc.substring(0, 160), { width: CONTENT_W - 28 }) + 24);
-  fillRRect(MARGIN, safeY(), CONTENT_W, descH, 8, C.slate50);
-  strokeRRect(MARGIN, safeY(), CONTENT_W, descH, 8, C.slate200, 0.5);
+  const descH = Math.max(50, doc.heightOfString(metaDesc.substring(0, 200),
+    { width: CW - 110, font: REG, fontSize: 8.5, lineGap: 2 }) + 24);
+  rr(ML, getY(), CW, descH, 6, G.s50);
+  rrStroke(ML, getY(), CW, descH, 6, G.s200);
+  const mdy = getY();
+  txt("META DESCRIPTION", ML + 12, mdy + 8, BOLD, 7, G.s400, { characterSpacing: 0.7 });
+  doc.font(REG).fontSize(8.5).fillColor(G.s700)
+     .text(metaDesc.substring(0, 200), ML + 12, mdy + 19, { width: CW - 110, lineGap: 2 });
 
-  const dRowY = safeY();
-  doc.font(F.bold).fontSize(7.5).fillColor(C.slate400)
-     .text("META DESCRIPTION", MARGIN + 14, dRowY + 8, { characterSpacing: 0.8, lineBreak: false });
-  doc.font(F.reg).fontSize(8.5).fillColor(C.slate700)
-     .text(metaDesc.substring(0, 160), MARGIN + 14, dRowY + 20, { width: CONTENT_W - 100, lineGap: 2 });
+  const dLen = metaDesc.length;
+  const dOk  = dLen >= 120 && dLen <= 160;
+  rr(PW - MR - 82, mdy + 12, 76, 16, 8, dOk ? G.gTint : "#fffbeb");
+  txt(dOk ? "Optimal" : dLen < 120 ? "Too short" : "Too long",
+      PW - MR - 80, mdy + 17, BOLD, 7, dOk ? G.gDark : G.amber);
 
-  const descLen = metaDesc.length;
-  const descOk = descLen >= 120 && descLen <= 160;
-  const descChip = descOk ? "✓ Optimal" : descLen < 120 ? "⚠ Too short" : "⚠ Too long";
-  fillRRect(PAGE_W - MARGIN - 90, dRowY + 12, 84, 18, 9, descOk ? C.greenTint : "#fffbeb");
-  doc.font(F.bold).fontSize(7).fillColor(descOk ? C.green : "#f59e0b")
-     .text(descChip, PAGE_W - MARGIN - 88, dRowY + 18, { lineBreak: false });
+  setY(mdy + descH + 14);
 
-  doc.y = dRowY + descH + 16;
-
-  // ═══════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════
   // SECTION — HEADING STRUCTURE
-  // ═══════════════════════════════════════════════════════════════
-  sectionHead("HEADING STRUCTURE & DOCUMENT HIERARCHY");
+  // ═════════════════════════════════════════════════════════════
+  sectionHead("HEADING STRUCTURE");
 
   const h1s = scan.metaData?.headings?.h1 || [];
   const h2s = scan.metaData?.headings?.h2 || [];
   const h3s = scan.metaData?.headings?.h3 || [];
-
-  const headingStats = [
-    { tag: "H1", count: h1s.length, ideal: "Exactly 1", ok: h1s.length === 1, color: C.green, sample: h1s[0] },
-    { tag: "H2", count: h2s.length, ideal: "2 – 8",    ok: h2s.length >= 2 && h2s.length <= 8, color: C.blue,   sample: h2s[0] },
-    { tag: "H3", count: h3s.length, ideal: "Any",       ok: true,                                color: C.purple, sample: h3s[0] },
+  const hStats = [
+    { tag: "H1", count: h1s.length, ok: h1s.length === 1, sample: h1s[0], color: G.green  },
+    { tag: "H2", count: h2s.length, ok: h2s.length >= 2,  sample: h2s[0], color: G.blue   },
+    { tag: "H3", count: h3s.length, ok: true,              sample: h3s[0], color: G.purple },
   ];
 
-  const hCardW = (CONTENT_W - 16) / 3;
+  const HC_W = (CW - 16) / 3;
+  guard(88);
+  const hCardY = getY();
 
-  guard(90);
-  headingStats.forEach((h, i) => {
-    const hx = MARGIN + i * (hCardW + 8);
-    const hy = safeY();
+  hStats.forEach((h, i) => {
+    const hx = ML + i * (HC_W + 8);
+    rr(hx, hCardY, HC_W, 78, 6, G.white);
+    rrStroke(hx, hCardY, HC_W, 78, 6, h.ok ? G.gMid : G.s200, 0.75);
 
-    fillRRect(hx, hy, hCardW, 78, 8, C.white);
-    strokeRRect(hx, hy, hCardW, 78, 8, h.ok ? C.greenMid : C.slate200, 0.75);
-
-    // Tag pill
-    fillRRect(hx + 10, hy + 10, 28, 16, 8, h.ok ? C.greenTint : C.slate100);
-    doc.font(F.bold).fontSize(8).fillColor(h.ok ? C.green : C.slate500)
-       .text(h.tag, hx + 15, hy + 14, { lineBreak: false });
+    // Tag chip
+    rr(hx + 10, hCardY + 10, 26, 16, 8, h.ok ? G.gTint : G.s100);
+    txt(h.tag, hx + 14, hCardY + 14, BOLD, 8, h.ok ? G.green : G.s600);
 
     // Count
-    doc.font(F.bold).fontSize(20).fillColor(C.slate900)
-       .text(String(h.count), hx + 48, hy + 8, { lineBreak: false });
+    txt(String(h.count), hx + 46, hCardY + 8, BOLD, 22, G.s900);
 
-    // Status
-    const statusLabel = h.ok ? "Optimal" : "Review";
-    fillRRect(hx + hCardW - 56, hy + 10, 48, 14, 7, h.ok ? C.greenTint : "#fef9c3");
-    doc.font(F.bold).fontSize(6.5).fillColor(h.ok ? C.greenDark : "#92400e")
-       .text(statusLabel, hx + hCardW - 54, hy + 14, { lineBreak: false });
+    // Status chip
+    rr(hx + HC_W - 58, hCardY + 10, 50, 16, 8, h.ok ? G.gTint : "#fef9c3");
+    txt(h.ok ? "Optimal" : "Review", hx + HC_W - 56, hCardY + 14, BOLD, 6.5,
+        h.ok ? G.gDark : "#92400e");
 
-    // Sample text
-    if (h.sample) {
-      const sample = h.sample.substring(0, 30) + (h.sample.length > 30 ? "…" : "");
-      doc.font(F.italic).fontSize(7).fillColor(C.slate400)
-         .text(`"${sample}"`, hx + 10, hy + 52, { width: hCardW - 20, lineBreak: false });
-    } else {
-      doc.font(F.italic).fontSize(7).fillColor(C.slate400)
-         .text("No headings found", hx + 10, hy + 52, { lineBreak: false });
-    }
+    // Sample
+    const sample = h.sample ? h.sample.substring(0, 28) + (h.sample.length > 28 ? "..." : "") : "None found";
+    txt(`"${sample}"`, hx + 10, hCardY + 56, ITAL, 7, G.s400,
+        { width: HC_W - 20, lineBreak: false });
   });
 
-  doc.y = safeY() + 78 + 16;
+  setY(hCardY + 78 + 16);
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════
   // SECTION — TECHNICAL SIGNALS
-  // ═══════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════
   sectionHead("TECHNICAL SEO SIGNALS");
 
-  const ssl           = scan.summary?.sslSecure;
-  const mobile        = scan.summary?.mobileResponsive;
-  const missingAlts   = scan.metaData?.imagesWithoutAltCount || 0;
-  const internalLinks = scan.summary?.linksAnalysis?.internalCount || 0;
-  const externalLinks = scan.summary?.linksAnalysis?.externalCount || 0;
-  const brokenLinks   = scan.summary?.linksAnalysis?.brokenCount || 0;
+  const ssl   = scan.summary?.sslSecure;
+  const mob   = scan.summary?.mobileResponsive;
+  const alts  = scan.metaData?.imagesWithoutAltCount || 0;
+  const intL  = scan.summary?.linksAnalysis?.internalCount || 0;
+  const extL  = scan.summary?.linksAnalysis?.externalCount || 0;
+  const brkL  = scan.summary?.linksAnalysis?.brokenCount  || 0;
 
   const signals = [
-    { label: "HTTPS / SSL",        ok: ssl,          pass: "Secure HTTPS active",       fail: "No SSL certificate"     },
-    { label: "Mobile Responsive",  ok: mobile,       pass: "Viewport tag present",      fail: "No viewport meta tag"   },
-    { label: "Image Alt Tags",     ok: missingAlts === 0, pass: "All images labelled", fail: `${missingAlts} missing`  },
-    { label: "Internal Links",     ok: internalLinks > 0, pass: `${internalLinks} found`, fail: "None found"           },
-    { label: "External Links",     ok: externalLinks >= 0, pass: `${externalLinks} found`, fail: "None found"          },
-    { label: "Broken Links",       ok: brokenLinks === 0, pass: "None detected",        fail: `${brokenLinks} broken`  },
+    { label: "HTTPS / SSL",       ok: !!ssl,      pass: "Secure — HTTPS active",    fail: "No SSL certificate detected"  },
+    { label: "Mobile Responsive", ok: !!mob,      pass: "Viewport tag detected",    fail: "No viewport meta tag found"   },
+    { label: "Image Alt Tags",    ok: alts === 0, pass: "All images have alt text", fail: `${alts} image(s) missing alt` },
+    { label: "Internal Links",    ok: intL > 0,   pass: `${intL} internal links`,   fail: "No internal links found"      },
+    { label: "External Links",    ok: true,       pass: `${extL} external links`,   fail: "No external links found"      },
+    { label: "Broken Links",      ok: brkL === 0, pass: "None detected",            fail: `${brkL} broken link(s) found` },
   ];
 
-  const sigColW = (CONTENT_W - 10) / 2;
+  const SIG_W = (CW - 10) / 2;
+  let sigCol = 0;
 
   signals.forEach((sig, i) => {
-    const col = i % 2;
-    const isNew = i > 0 && col === 0;
-    if (isNew) gap(8);
+    if (sigCol === 0) guard(34);
+    const sx = ML + sigCol * (SIG_W + 10);
+    const sy = getY();
 
-    const sx = MARGIN + col * (sigColW + 10);
-    if (col === 0) guard(34);
-    const sy = safeY();
+    rr(sx, sy, SIG_W, 28, 6, sig.ok ? G.gTint : "#fff1f2");
+    rrStroke(sx, sy, SIG_W, 28, 6, sig.ok ? G.gMid : "#fecdd3", 0.5);
 
-    fillRRect(sx, sy, sigColW, 28, 6, sig.ok ? C.greenTint : "#fff1f2");
-    strokeRRect(sx, sy, sigColW, 28, 6, sig.ok ? C.greenMid : "#fecdd3", 0.5);
+    doc.circle(sx + 14, sy + 14, 5).fillColor(sig.ok ? G.green : G.rose).fill();
+    txt(sig.label, sx + 24, sy + 6, BOLD, 7.5, G.s700);
+    txt(sig.ok ? sig.pass : sig.fail, sx + 24, sy + 16, REG, 7,
+        sig.ok ? G.gDark : G.rose);
 
-    // Dot
-    doc.circle(sx + 14, sy + 14, 5).fillColor(sig.ok ? C.green : "#f43f5e").fill();
-
-    doc.font(F.bold).fontSize(7.5).fillColor(C.slate700)
-       .text(sig.label, sx + 24, sy + 6, { lineBreak: false });
-    doc.font(F.reg).fontSize(7).fillColor(sig.ok ? C.greenDark : "#be123c")
-       .text(sig.ok ? sig.pass : sig.fail, sx + 24, sy + 16, { lineBreak: false });
-
-    if (col === 1) gap(28 + 4);
+    sigCol++;
+    if (sigCol === 2) {
+      sigCol = 0;
+      addY(36);
+    }
   });
+  if (sigCol === 1) addY(36);
+  addY(8);
 
-  gap(12);
-
-  // ═══════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════
   // SECTION — KEYWORD DENSITY
-  // ═══════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════
   const keywords = scan.summary?.keywordDensity || [];
-  if (keywords.length > 0) {
-    sectionHead("TOP KEYWORD DENSITY ANALYSIS");
 
-    guard(keywords.length * 26 + 12);
+  if (keywords.length > 0) {
+    sectionHead("TOP KEYWORD DENSITY");
+
+    const maxDensity = keywords[0]?.density || 1;
 
     keywords.forEach((kw, i) => {
-      const kwY = safeY();
+      guard(28);
+      const ky = getY();
 
-      // Alternating row
       if (i % 2 === 0) {
-        fillRRect(MARGIN, kwY, CONTENT_W, 24, 0, C.slate50);
+        doc.rect(ML, ky, CW, 24).fillColor(G.s50).fill();
       }
 
       // Rank badge
-      fillRRect(MARGIN + 4, kwY + 4, 16, 16, 4, C.green);
-      doc.font(F.bold).fontSize(7).fillColor(C.white)
-         .text(String(i + 1), MARGIN + 4, kwY + 8, { width: 16, align: "center", lineBreak: false });
+      rr(ML + 4, ky + 4, 18, 16, 4, G.green);
+      txt(String(i + 1), ML + 4, ky + 8, BOLD, 7.5, G.white,
+          { width: 18, align: "center" });
 
-      // Keyword
-      doc.font(F.bold).fontSize(8.5).fillColor(C.slate800)
-         .text(kw.word, MARGIN + 26, kwY + 7, { lineBreak: false });
+      // Word
+      txt(kw.word, ML + 28, ky + 7, BOLD, 9, G.s800);
 
       // Count
-      doc.font(F.reg).fontSize(7.5).fillColor(C.slate500)
-         .text(`${kw.count}×`, MARGIN + 180, kwY + 7, { lineBreak: false });
+      txt(`${kw.count}x`, ML + 180, ky + 7, REG, 8, G.s500);
 
-      // Density bar
-      const barFullW = 180;
-      const barX = MARGIN + 230;
-      const maxDensity = keywords[0]?.density || 1;
-      const filled = Math.max(2, barFullW * (kw.density / maxDensity));
-
-      fillRRect(barX, kwY + 9, barFullW, 6, 3, C.slate200);
-      fillRRect(barX, kwY + 9, filled, 6, 3, C.green);
+      // Bar
+      const BAR_X = ML + 225;
+      const BAR_W = 180;
+      const filled = Math.max(2, BAR_W * (kw.density / maxDensity));
+      rr(BAR_X, ky + 9, BAR_W, 6, 3, G.s200);
+      rr(BAR_X, ky + 9, filled, 6, 3, G.green);
 
       // Density %
-      doc.font(F.bold).fontSize(7.5).fillColor(C.slate600)
-         .text(`${kw.density}%`, barX + barFullW + 8, kwY + 7, { lineBreak: false });
+      txt(`${kw.density}%`, BAR_X + BAR_W + 8, ky + 7, BOLD, 7.5, G.s600);
 
-      gap(24);
+      addY(24);
     });
-    gap(8);
+    addY(8);
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // SECTION — AI OPTIMIZATION PLAN
-  // ═══════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════
+  // SECTION — AI RECOMMENDATIONS
+  // ═════════════════════════════════════════════════════════════
   sectionHead("AI-POWERED OPTIMIZATION RECOMMENDATIONS");
 
-  // Executive Summary callout
-  const aiSummary = scan.aiSuggestions?.summary || "Analysis generated. Review prioritized recommendations below.";
-  const sumH = doc.heightOfString(aiSummary, { width: CONTENT_W - 30, lineGap: 2 }) + 28;
+  const aiSummary = scan.aiSuggestions?.summary ||
+    "Analysis complete. Review the actionable recommendations below.";
 
-  guard(sumH + 10);
+  // Executive summary callout
+  const sumTextH = doc.heightOfString(aiSummary,
+    { width: CW - 28, font: ITAL, fontSize: 9, lineGap: 2 });
+  const sumBoxH = sumTextH + 32;
 
-  const sumY = safeY();
-  fillRRect(MARGIN, sumY, CONTENT_W, sumH, 10, C.greenTint);
-  doc.rect(MARGIN, sumY, 4, sumH).fillColor(C.green).fill(); // solid left bar
-  strokeRRect(MARGIN, sumY, CONTENT_W, sumH, 10, C.greenMid, 0.75);
+  guard(sumBoxH + 10);
+  const sy = getY();
 
-  doc.font(F.bold).fontSize(7.5).fillColor(C.green)
-     .text("✦  EXECUTIVE SUMMARY", MARGIN + 16, sumY + 10, { characterSpacing: 0.6, lineBreak: false });
-  doc.font(F.italic).fontSize(8.5).fillColor(C.slate700)
-     .text(aiSummary, MARGIN + 16, sumY + 22, { width: CONTENT_W - 30, lineGap: 2 });
+  rr(ML, sy, CW, sumBoxH, 8, G.gTint);
+  doc.rect(ML, sy, 4, sumBoxH).fillColor(G.green).fill();
+  rrStroke(ML, sy, CW, sumBoxH, 8, G.gMid, 0.6);
 
-  doc.y = sumY + sumH + 16;
+  txt("EXECUTIVE SUMMARY", ML + 16, sy + 10, BOLD, 7.5, G.green, { characterSpacing: 0.6 });
+  doc.font(ITAL).fontSize(9).fillColor(G.s700)
+     .text(aiSummary, ML + 16, sy + 24, { width: CW - 28, lineGap: 2 });
 
-  // ── Structured subsections ─────────────────────────────────────
+  setY(sy + sumBoxH + 14);
+
+  // AI subsections
   const aiSections = [
-    {
-      title: "🔧  TECHNICAL FIXES",
-      color: C.indigo,
-      bg:    "#eef2ff",
-      items: scan.aiSuggestions?.technicalFixes || [],
-    },
-    {
-      title: "✍️  CONTENT IMPROVEMENTS",
-      color: C.blue,
-      bg:    "#f0f9ff",
-      items: scan.aiSuggestions?.contentImprovements || [],
-    },
-    {
-      title: "⚡  PERFORMANCE TIPS",
-      color: "#f59e0b",
-      bg:    "#fffbeb",
-      items: scan.aiSuggestions?.performanceTips || [],
-    },
-    {
-      title: "🚨  PRIORITY ISSUES",
-      color: "#f43f5e",
-      bg:    "#fff1f2",
-      items: scan.aiSuggestions?.priorityIssues || [],
-    },
+    { title: "TECHNICAL FIXES",       color: G.indigo, bg: "#eef2ff", border: "#c7d2fe", items: scan.aiSuggestions?.technicalFixes || []       },
+    { title: "CONTENT IMPROVEMENTS",  color: G.blue,   bg: "#f0f9ff", border: "#bae6fd", items: scan.aiSuggestions?.contentImprovements || []  },
+    { title: "PERFORMANCE TIPS",      color: G.amber,  bg: "#fffbeb", border: "#fde68a", items: scan.aiSuggestions?.performanceTips || []       },
+    { title: "PRIORITY ISSUES",       color: G.rose,   bg: "#fff1f2", border: "#fecdd3", items: scan.aiSuggestions?.priorityIssues || []        },
   ];
 
   aiSections.forEach((sec) => {
     if (!sec.items || sec.items.length === 0) return;
 
-    const secH = sec.items.reduce((acc, item) => {
-      return acc + doc.heightOfString(`• ${item}`, { width: CONTENT_W - 28, lineGap: 2 }) + 8;
-    }, 36);
-
-    guard(secH + 12);
-
-    const secY = safeY();
-    fillRRect(MARGIN, secY, CONTENT_W, secH, 8, sec.bg);
-    strokeRRect(MARGIN, secY, CONTENT_W, secH, 8, sec.color + "44", 0.5);
-    doc.rect(MARGIN, secY, 3, secH).fillColor(sec.color).fill();
-
-    doc.font(F.bold).fontSize(8).fillColor(sec.color)
-       .text(sec.title, MARGIN + 14, secY + 10, { characterSpacing: 0.3, lineBreak: false });
-
-    let itemY = secY + 26;
+    // Calculate box height with accurate measurement
+    let boxH = 30;
     sec.items.forEach((item) => {
-      const itemH = doc.heightOfString(`• ${item}`, { width: CONTENT_W - 28, lineGap: 2 }) + 6;
-
-      // Guard within the section
-      if (itemY + itemH > PAGE_H - 65) {
-        doc.addPage();
-        itemY = MARGIN + 46;
-      }
-
-      doc.font(F.reg).fontSize(8.5).fillColor(C.slate700)
-         .text(`• ${item}`, MARGIN + 16, itemY, { width: CONTENT_W - 28, lineGap: 2 });
-      itemY += itemH;
+      boxH += doc.heightOfString(`- ${item}`, {
+        width: CW - 30, font: REG, fontSize: 8.5, lineGap: 2,
+      }) + 7;
     });
 
-    doc.y = secY + secH + 12;
+    guard(boxH + 12);
+    const bx = getY();
+
+    rr(ML, bx, CW, boxH, 8, sec.bg);
+    doc.rect(ML, bx, 4, boxH).fillColor(sec.color).fill();
+    rrStroke(ML, bx, CW, boxH, 8, sec.border, 0.6);
+
+    txt(sec.title, ML + 14, bx + 10, BOLD, 8, sec.color, { characterSpacing: 0.5 });
+
+    let iy = bx + 26;
+    sec.items.forEach((item) => {
+      if (!item) return;
+      const itemH = doc.heightOfString(`- ${item}`, {
+        width: CW - 30, font: REG, fontSize: 8.5, lineGap: 2,
+      }) + 7;
+
+      if (iy + itemH > BOTTOM) {
+        doc.addPage({ size: "A4", margin: 0 });
+        pageNum++;
+        drawPageChrome(false);
+        iy = ML + 40;
+      }
+
+      doc.font(REG).fontSize(8.5).fillColor(G.s700)
+         .text(`- ${item}`, ML + 16, iy, { width: CW - 28, lineGap: 2 });
+      iy += itemH;
+    });
+
+    setY(bx + boxH + 12);
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // FINAL PAGE — CLOSING BADGE (only if there's reasonable space)
-  // ═══════════════════════════════════════════════════════════════
-  // If remaining space on current page is less than 100px, add a page
-  if (safeY() > PAGE_H - 130) {
-    doc.addPage();
-  }
+  // ═════════════════════════════════════════════════════════════
+  // CLOSING BADGE — fits on current page if 100px remain
+  // ═════════════════════════════════════════════════════════════
+  const BADGE_H = 70;
+  guard(BADGE_H + 24);
+  addY(16);
 
-  gap(20);
-  const badgeY = safeY();
-  const badgeH = 72;
+  const by = getY();
+  rr(ML, by, CW, BADGE_H, 10, G.s900);
 
-  fillRRect(MARGIN, badgeY, CONTENT_W, badgeH, 12, C.slate900);
-  doc.circle(PAGE_W - MARGIN - 40, badgeY + badgeH / 2, 30)
-     .fillOpacity(0.08).fillColor(C.green).fill();
-  doc.fillOpacity(1);
+  // Subtle circles inside badge
+  doc.circle(PW - MR - 44, by + BADGE_H / 2, 26).fillColor(G.s800).fill();
+  doc.circle(ML + 30, by - 10, 20).fillColor(G.s800).fill();
 
-  doc.font(F.bold).fontSize(13).fillColor(C.white)
-     .text("Search Pulse", MARGIN + 20, badgeY + 14, { lineBreak: false });
-  doc.font(F.reg).fontSize(7.5).fillColor(C.slate400)
-     .text("Smart SEO Intelligence for modern websites.", MARGIN + 20, badgeY + 32, { lineBreak: false });
-  doc.font(F.bold).fontSize(7).fillColor(C.green)
-     .text("searchpulse.vercel.app", MARGIN + 20, badgeY + 46, { lineBreak: false });
+  txt("Search Pulse", ML + 22, by + 14, BOLD, 14, G.white);
+  txt("Smart SEO Intelligence for modern websites.", ML + 22, by + 32, REG, 8, G.s400);
+  txt("searchpulse.vercel.app", ML + 22, by + 46, BOLD, 7.5, G.green);
 
-  // Seal
-  fillRRect(PAGE_W - MARGIN - 80, badgeY + 12, 72, 48, 8, C.green);
-  doc.font(F.bold).fontSize(7).fillColor(C.white)
-     .text("CERTIFIED", PAGE_W - MARGIN - 80, badgeY + 18, { width: 72, align: "center", lineBreak: false });
-  doc.font(F.bold).fontSize(14).fillColor(C.white)
-     .text("✓", PAGE_W - MARGIN - 80, badgeY + 26, { width: 72, align: "center", lineBreak: false });
-  doc.font(F.bold).fontSize(6.5).fillColor(C.white)
-     .text("SEO AUDITED", PAGE_W - MARGIN - 80, badgeY + 44, { width: 72, align: "center", characterSpacing: 0.5, lineBreak: false });
+  // Green seal
+  rr(PW - MR - 76, by + 11, 68, 48, 8, G.green);
+  txt("CERTIFIED", PW - MR - 76, by + 18, BOLD, 6.5, G.white,
+      { width: 68, align: "center", characterSpacing: 0.5 });
+  txt("AUDIT", PW - MR - 76, by + 30, BOLD, 18, G.white,
+      { width: 68, align: "center" });
+  txt("COMPLETE", PW - MR - 76, by + 50, BOLD, 5.5, G.white,
+      { width: 68, align: "center", characterSpacing: 0.8 });
 
-  // ── END ────────────────────────────────────────────────────────
+  // ── Done ──────────────────────────────────────────────────────
   doc.end();
 };
