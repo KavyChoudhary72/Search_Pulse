@@ -125,6 +125,9 @@ export default function Dashboard() {
   useEffect(() => {
     if (!currentScan || currentScan.enriched) return;
 
+    // Trigger the enrichment/poll immediately on mount
+    lazyLoadScan(currentScan._id);
+
     const interval = setInterval(() => {
       lazyLoadScan(currentScan._id);
     }, 3000);

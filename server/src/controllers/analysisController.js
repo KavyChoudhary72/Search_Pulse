@@ -1,7 +1,7 @@
 import { scrapeHtmlData } from "../services/scraperService.js";
 import { analyzeSeoMetrics } from "../services/seoAnalyzer.js";
 import Scan from "../models/Scan.js";
-import { generateSeoSuggestions } from "../services/aiService.js";
+import { generateSeoSuggestions, generateFallbackSuggestions } from "../services/aiService.js";
 import { generateSeoPdf } from "../services/pdfService.js";
 import { captureMobileSnapshot } from "../services/screenshotService.js";
 import { getPageSpeedData } from "../services/pagespeedService.js";
@@ -47,7 +47,6 @@ export const startAnalysis = async (req, res, next) => {
     };
 
     // ── STEP 3: Generate instant fallback AI suggestions (synchronous) ────
-    const { generateFallbackSuggestions } = await import("../services/aiService.js");
     const instantAi = generateFallbackSuggestions({
       url,
       seoScore: evaluation.seoScore,
@@ -92,61 +91,14 @@ export const startAnalysis = async (req, res, next) => {
     // ── STEP 5: Respond immediately — user sees results in ~2-3s ─────────
     res.status(200).json({ success: true, data: scan });
 
-    // ── STEP 6: Enrich in background (AI + PageSpeed + screenshot) — non-blocking ─────
-    setImmediate(async () => {
-      try {
-        const aiPayload = {
-          url,
-          seoScore: evaluation.seoScore,
-          issues: evaluation.issues,
-          summary: evaluation.summary,
-          performance: { performance, accessibility, bestPractices, metrics },
-          meta: {
-            metaTitle: rawHtmlData.metaTitle,
-            metaDescription: rawHtmlData.metaDescription,
-            headings: rawHtmlData.headings,
-          },
-        };
 
-        const [aiSuggestions, screenshot, pageSpeedData] = await Promise.all([
-          generateSeoSuggestions(aiPayload),
-          captureMobileSnapshot(url),
-          getPageSpeedData(url),
-        ]);
-
-        const updateData = {
-          aiSuggestions,
-          screenshot,
-          enriched: true,
-        };
-
-        if (pageSpeedData) {
-          updateData.scores = {
-            seo: pageSpeedData.seo !== null ? pageSpeedData.seo : evaluation.seoScore,
-            performance: pageSpeedData.performance !== null ? pageSpeedData.performance : performance,
-            accessibility: pageSpeedData.accessibility !== null ? pageSpeedData.accessibility : accessibility,
-            bestPractices: pageSpeedData.bestPractices !== null ? pageSpeedData.bestPractices : bestPractices,
-          };
-          updateData.metrics = {
-            firstContentfulPaint: pageSpeedData.metrics?.firstContentfulPaint || metrics.firstContentfulPaint,
-            speedIndex: pageSpeedData.metrics?.speedIndex || metrics.speedIndex,
-            largestContentfulPaint: pageSpeedData.metrics?.largestContentfulPaint || metrics.largestContentfulPaint,
-            isEstimated: false,
-          };
-        }
-
-        await Scan.findByIdAndUpdate(scan._id, updateData);
-
-        console.log(`✅ Background enrichment complete for: ${url}`);
-      } catch (bgErr) {
-        console.error("⚠️ Background enrichment failed:", bgErr.message);
-      }
-    });
 
   } catch (error) {
     next(error);
   }
 };
+
+const activeEnrichments = new Set();
 
 export const lazyLoadAnalysis = async (req, res, next) => {
   try {
@@ -157,6 +109,83 @@ export const lazyLoadAnalysis = async (req, res, next) => {
         message: "Scan report not found or you do not have permission to audit it.",
       });
     }
+
+    // If already enriched, return immediately
+    if (scan.enriched) {
+      return res.status(200).json({ success: true, data: scan });
+    }
+
+    // If not already running, start enrichment in background
+    const scanIdStr = scan._id.toString();
+    if (!activeEnrichments.has(scanIdStr)) {
+      activeEnrichments.add(scanIdStr);
+
+      // Trigger background enrichment without blocking the response
+      setImmediate(async () => {
+        try {
+          console.log(`🚀 Starting background enrichment for: ${scan.url}`);
+          
+          const aiPayload = {
+            url: scan.url,
+            seoScore: scan.scores.seo,
+            issues: scan.issues,
+            summary: {
+              totalImages: scan.summary.totalImages,
+              missingAlts: scan.summary.missingAlts,
+              h1Count: scan.summary.h1Count,
+              h2Count: scan.summary.h2Count,
+              h3Count: scan.summary.h3Count,
+            },
+            performance: {
+              performance: scan.scores.performance,
+              accessibility: scan.scores.accessibility,
+              bestPractices: scan.scores.bestPractices,
+              metrics: scan.metrics,
+            },
+            meta: {
+              metaTitle: scan.metaData.title,
+              metaDescription: scan.metaData.description,
+              headings: scan.metaData.headings,
+            },
+          };
+
+          const [aiSuggestions, screenshot, pageSpeedData] = await Promise.all([
+            generateSeoSuggestions(aiPayload),
+            captureMobileSnapshot(scan.url),
+            getPageSpeedData(scan.url),
+          ]);
+
+          const updateData = {
+            aiSuggestions,
+            screenshot,
+            enriched: true,
+          };
+
+          if (pageSpeedData) {
+            updateData.scores = {
+              seo: pageSpeedData.seo !== null ? pageSpeedData.seo : scan.scores.seo,
+              performance: pageSpeedData.performance !== null ? pageSpeedData.performance : scan.scores.performance,
+              accessibility: pageSpeedData.accessibility !== null ? pageSpeedData.accessibility : scan.scores.accessibility,
+              bestPractices: pageSpeedData.bestPractices !== null ? pageSpeedData.bestPractices : scan.scores.bestPractices,
+            };
+            updateData.metrics = {
+              firstContentfulPaint: pageSpeedData.metrics?.firstContentfulPaint || scan.metrics.firstContentfulPaint,
+              speedIndex: pageSpeedData.metrics?.speedIndex || scan.metrics.speedIndex,
+              largestContentfulPaint: pageSpeedData.metrics?.largestContentfulPaint || scan.metrics.largestContentfulPaint,
+              isEstimated: false,
+            };
+          }
+
+          await Scan.findByIdAndUpdate(scan._id, updateData);
+          console.log(`✅ Background enrichment complete for: ${scan.url}`);
+        } catch (bgErr) {
+          console.error("⚠️ Background enrichment failed:", bgErr.message);
+        } finally {
+          activeEnrichments.delete(scanIdStr);
+        }
+      });
+    }
+
     return res.status(200).json({ success: true, data: scan });
   } catch (error) {
     next(error);
